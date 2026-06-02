@@ -24,7 +24,7 @@ jobs:
 
       - name: Build
         run: |
-          ((Get-Content -path main.go -Raw) -replace "local-build","0.0.0-canary.${{ github.run_number }}") | Set-Content -Path main.go
+          ((Get-Content -path main.go -Raw) -replace "local-build","0.0.${{ github.run_number }}") | Set-Content -Path main.go
           mkdir bin
           go build -ldflags="-s -w" -o bin/ios.exe
           Compress-Archive -Path .\bin\ios.exe -CompressionLevel Optimal -DestinationPath go-ios-windows.zip
@@ -52,7 +52,7 @@ jobs:
       - name: Build
         run: |
           brew install gnu-sed
-          gsed -i 's/version \= \"local-build\"/version = \"0.0.0-canary.${{ github.run_number }}\"/' main.go
+          gsed -i 's/version \= \"local-build\"/version = \"0.0.${{ github.run_number }}\"/' main.go
           mkdir bin
           GOARCH=arm64 go build -ldflags="-s -w" -o bin/ios-arm64
           GOARCH=amd64 go build -ldflags="-s -w" -o bin/ios-amd64
@@ -107,7 +107,7 @@ jobs:
 
       - name: Build linux
         run: |
-          sed -i 's/version \= \"local-build\"/version = \"0.0.0-canary.${{ github.run_number }}\"/' main.go
+          sed -i 's/version \= \"local-build\"/version = \"0.0.${{ github.run_number }}\"/' main.go
           mkdir bin
           GOARCH=arm64 go build -ldflags="-s -w" -o bin/ios-arm64
           GOARCH=amd64 go build -ldflags="-s -w" -o bin/ios-amd64
@@ -135,9 +135,9 @@ jobs:
           cp ./bin/ios-arm64 ./npm_publish/dist/go-ios-linux-arm64_linux_arm64/ios
           cp ./README.md ./npm_publish
           cd npm_publish
-          # Retarget to the throwaway canary package + a unique prerelease version.
+          # Retarget to the throwaway canary package + a unique version per run.
           sed -i 's/"name": "go-ios"/"name": "go-ios-canary"/' package.json
-          sed -i 's/"local-build"/"0.0.0-canary.${{ github.run_number }}"/' package.json
+          sed -i 's/"local-build"/"0.0.${{ github.run_number }}"/' package.json
           npm install
           # No NODE_AUTH_TOKEN / .npmrc auth line: npm authenticates via OIDC
           # trusted publishing. Setting an (even empty) token would break OIDC.
