@@ -142,7 +142,7 @@ Usage:
   ios setlocation [options] [--lat=<lat>] [--lon=<lon>]
   ios setlocationgpx [options] [--gpxfilepath=<gpxfilepath>]
   ios syslog [--parse] [options]
-  ios ostrace [--pid=<processID>] [--process=<processName>] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>] [options]
+  ios ostrace [--pid=<processID>] [--process=<processName>] [--follow] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>] [options]
   ios sysmontap [options]
   ios timeformat (24h | 12h | toggle | get) [--force] [options]
   ios tunnel ls [options]
@@ -377,17 +377,19 @@ The commands work as following:
                                                                     Ex.: setlocationgpx --gpxfilepath=/home/username/location.gpx
 
     ios syslog [--parse] [options]                                  Prints a device's log output, Use --parse to parse the fields from the log
-    ios ostrace [--pid=<processID>] [--process=<processName>] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>]
-                                                                    Stream structured syslog via os_trace_relay. Note: streaming logs
-                                                                    places significant CPU load on the device.
-                                                                    Device-side filters (reduce USB traffic):
-                                                                      --pid=<pid>           Only stream logs from this process ID
-                                                                      --process=<name>      Resolve process name to PID, then filter device-side
-                                                                      --level=<levels>      Filter by OS log type (comma-separated): default,info,debug,error,fault
-                                                                    Client-side filters (applied after receiving, does not reduce USB traffic):
-                                                                      --subsystem=<sub>     Only show entries matching this subsystem (substring match)
-                                                                      --match=<str>         Only show entries where the message contains this string
-                                                                      --exclude=<str>       Hide entries where the message contains this string
+    ios ostrace [--pid=<processID>] [--process=<processName>] [--follow] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>]
+                                                                     Stream structured syslog via os_trace_relay. Note: streaming logs
+                                                                     places significant CPU load on the device.
+                                                                       --follow             Keep running and reconnect when the process exits or restarts.
+                                                                                            When used with --process, polls until the process appears.
+                                                                     Device-side filters (reduce USB traffic):
+                                                                       --pid=<pid>           Only stream logs from this process ID
+                                                                       --process=<name>      Resolve process name to PID, then filter device-side
+                                                                       --level=<levels>      Filter by OS log type (comma-separated): default,info,debug,error,fault
+                                                                     Client-side filters (applied after receiving, does not reduce USB traffic):
+                                                                       --subsystem=<sub>     Only show entries matching this subsystem (substring match)
+                                                                       --match=<str>         Only show entries where the message contains this string
+                                                                       --exclude=<str>       Hide entries where the message contains this string
     ios sysmontap                                                   Get system stats like MEM, CPU
 
     ios timeformat (24h | 12h | toggle | get) [--force] [options]   Sets, or returns the state of the "time format".
@@ -875,7 +877,8 @@ The commands work as following:
 			Match:     match,
 			Exclude:   exclude,
 		}
-		runOsTrace(device, pid, processName, levelFilter.MessageFilter, levelFilter.StreamFlags, clientFilter)
+		follow, _ := arguments.Bool("--follow")
+		runOsTrace(device, pid, processName, levelFilter.MessageFilter, levelFilter.StreamFlags, clientFilter, follow)
 		return
 	}
 
@@ -2769,47 +2772,174 @@ func runSyslog(device ios.DeviceEntry, parse bool) {
 	<-c
 }
 
-func runOsTrace(device ios.DeviceEntry, pid int, processName string, messageFilter uint16, streamFlags uint32, clientFilter ostrace.ClientFilter) {
+func runOsTrace(device ios.DeviceEntry, pid int, processName string, messageFilter uint16, streamFlags uint32, clientFilter ostrace.ClientFilter, follow bool) {
 	log.Debug("Run OsTrace.")
 	// Note: streaming log messages places significant CPU load on the device.
 
-	if processName != "" && pid == -1 {
-		service, err := instruments.NewDeviceInfoService(device)
-		exitIfError("failed opening deviceInfoService for resolving process name", err)
-		proc, err := service.ProcessByName(processName)
-		service.Close()
-		exitIfError("process not found", err)
-		pid = int(proc.Pid)
-		log.Infof("Resolved process %q to PID %d", processName, pid)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	defer signal.Stop(sigCh)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	sleepOrCancel := func(d time.Duration) bool {
+		select {
+		case <-ctx.Done():
+			return true
+		case <-time.After(d):
+			return false
+		}
 	}
 
-	conn, err := ostrace.New(device, pid, messageFilter, streamFlags)
-	exitIfError("os_trace connection failed", err)
-	defer conn.Close()
-
-	done := make(chan error, 1)
-	go func() {
-		for {
-			entry, err := conn.ReadFilteredEntry(clientFilter)
-			if err != nil {
-				done <- err
-				return
-			}
-			if JSONdisabled {
-				fmt.Printf("%s %s %d %s\n", entry.Timestamp.Format(time.RFC3339Nano), entry.LevelName, entry.PID, entry.Message)
-			} else {
-				fmt.Println(convertToJSONString(entry))
+	for {
+		if processName != "" && pid == -1 {
+			resolved := false
+			waitingLogged := false
+			for !resolved {
+				service, err := instruments.NewDeviceInfoService(device)
+				if err != nil {
+					if follow {
+						log.Warnf("Failed to open deviceInfoService: %v, retrying...", err)
+						if sleepOrCancel(2 * time.Second) {
+							return
+						}
+						continue
+					}
+					exitIfError("failed opening deviceInfoService for resolving process name", err)
+				}
+				proc, err := service.ProcessByName(processName)
+				service.Close()
+				if err != nil {
+					if follow {
+						if !waitingLogged {
+							log.Infof("Waiting for process %q to appear...", processName)
+							waitingLogged = true
+						}
+						if sleepOrCancel(2 * time.Second) {
+							return
+						}
+						continue
+					}
+					exitIfError("process not found", err)
+				}
+				pid = int(proc.Pid)
+				log.Infof("Resolved process %q to PID %d", processName, pid)
+				resolved = true
 			}
 		}
-	}()
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	select {
-	case <-c:
-	case err := <-done:
-		conn.Close()
-		exitIfError("failed reading os_trace entry", err)
+
+		conn, err := ostrace.New(device, pid, messageFilter, streamFlags)
+		if err != nil {
+			if follow {
+				log.Warnf("os_trace connection failed: %v, retrying...", err)
+				if processName != "" {
+					pid = -1
+				}
+				if sleepOrCancel(2 * time.Second) {
+					return
+				}
+				continue
+			}
+			exitIfError("os_trace connection failed", err)
+		}
+
+		done := make(chan error, 1)
+		reconnect := make(chan struct{}, 1)
+		monitorCtx, monitorCancel := context.WithCancel(ctx)
+
+		if follow && pid > 0 {
+			go func(targetPid int) {
+				ticker := time.NewTicker(3 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-monitorCtx.Done():
+						return
+					case <-ticker.C:
+						if !isProcessAlive(device, uint64(targetPid)) {
+							log.Infof("Process PID %d no longer running", targetPid)
+							select {
+							case reconnect <- struct{}{}:
+							default:
+							}
+							return
+						}
+					}
+				}
+			}(pid)
+		}
+
+		go func() {
+			for {
+				entry, err := conn.ReadFilteredEntry(clientFilter)
+				if err != nil {
+					done <- err
+					return
+				}
+				if JSONdisabled {
+					fmt.Printf("%s %s %d %s\n", entry.Timestamp.Format(time.RFC3339Nano), entry.LevelName, entry.PID, entry.Message)
+				} else {
+					fmt.Println(convertToJSONString(entry))
+				}
+			}
+		}()
+
+		select {
+		case <-ctx.Done():
+			monitorCancel()
+			conn.Close()
+			return
+		case <-reconnect:
+			monitorCancel()
+			conn.Close()
+			if processName != "" {
+				log.Info("os_trace stream ended, reconnecting...")
+				pid = -1
+			} else {
+				log.Infof("Process PID %d terminated; stopping follow.", pid)
+				return
+			}
+		case err := <-done:
+			monitorCancel()
+			conn.Close()
+			if follow {
+				log.Warnf("os_trace stream ended: %v, reconnecting...", err)
+				if processName != "" {
+					pid = -1
+				}
+				if sleepOrCancel(2 * time.Second) {
+					return
+				}
+				continue
+			}
+			exitIfError("failed reading os_trace entry", err)
+		}
 	}
+}
+
+func isProcessAlive(device ios.DeviceEntry, pid uint64) bool {
+	service, err := instruments.NewDeviceInfoService(device)
+	if err != nil {
+		log.Warnf("isProcessAlive: failed to connect to device: %v", err)
+		return false
+	}
+	defer service.Close()
+	procs, err := service.ProcessList()
+	if err != nil {
+		log.Warnf("isProcessAlive: failed to list processes: %v", err)
+		return false
+	}
+	for _, p := range procs {
+		if p.Pid == pid {
+			return true
+		}
+	}
+	return false
 }
 
 func rawSyslog(log string) string {
