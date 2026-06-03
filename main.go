@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/pkcs12"
 	"golang.org/x/term"
 
+	"github.com/danielpaulus/go-ios/internal/clihelp"
 	"github.com/danielpaulus/go-ios/ios/debugproxy"
 	"github.com/danielpaulus/go-ios/ios/deviceinfo"
 	"github.com/danielpaulus/go-ios/ios/house_arrest"
@@ -72,6 +73,14 @@ const version = "local-build"
 
 // Main Exports main for testing
 func Main() {
+	helpCatalog, err := clihelp.Load()
+	exitIfError("failed loading help definitions", err)
+	if handled, exitCode := helpCatalog.WriteHelp(os.Args[1:], version, os.Stdout, os.Stderr); handled {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+		return
+	}
 
 	usage := fmt.Sprintf(`go-ios %s
 
