@@ -159,6 +159,27 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           release-tag: ${{ env.release_tag }}
 
+      - name: Set release notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Extract the top released section from CHANGELOG.md: everything from
+          # the first "## [x.y.z]" heading up to (not including) the next one.
+          # The "## [Unreleased]" heading is skipped (no leading digit).
+          awk '
+            /^## \[[0-9]+\.[0-9]+\.[0-9]+/ { count++; if (count == 1) { cap=1; print; next } else { exit } }
+            cap { print }
+          ' CHANGELOG.md > release_body.md
+          if [ ! -s release_body.md ]; then
+            echo "::warning::no released section found in CHANGELOG.md; leaving release notes empty"
+            exit 0
+          fi
+          # The action just created this release; it is the most recent one.
+          TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName')"
+          echo "Setting notes on release $TAG"
+          gh release edit "$TAG" --notes-file release_body.md
+
       # OIDC trusted publishing needs Node >= 22.14.0 and npm >= 11.5.1.
       - name: Set up Node
         uses: actions/setup-node@v4
