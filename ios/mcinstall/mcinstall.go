@@ -332,6 +332,81 @@ func (mcInstallConn *Connection) AddProfileSupervised(profileFileBytes []byte, p
 	return mcInstallConn.addProfile(profileFileBytes, "InstallProfileSilent")
 }
 
+// WallpaperScreen identifies which screen(s) to apply a wallpaper to. Values
+// match the MDM "Wallpaper" Settings command's "Where" field.
+type WallpaperScreen int
+
+const (
+	WallpaperLockScreen WallpaperScreen = 1
+	WallpaperHomeScreen WallpaperScreen = 2
+	WallpaperBoth       WallpaperScreen = 3
+)
+
+// ParseWallpaperScreen maps "lock", "home" or "both" to the corresponding
+// WallpaperScreen value. Matches the cfgutil --screen flag.
+func ParseWallpaperScreen(s string) (WallpaperScreen, error) {
+	switch s {
+	case "lock":
+		return WallpaperLockScreen, nil
+	case "home":
+		return WallpaperHomeScreen, nil
+	case "both":
+		return WallpaperBoth, nil
+	}
+	return 0, fmt.Errorf("invalid screen %q (expected lock|home|both)", s)
+}
+
+// SetWallpaper sends the "Wallpaper" Settings command on an already-escalated
+// MCInstall connection. The image bytes should be a JPEG or PNG that the device
+// will accept directly. Use SetWallpaperSupervised if escalation has not been
+// performed yet.
+//
+// Note on `screen`: iOS 16+ unified Lock and Home wallpapers as a paired set,
+// so the device applies the image to both screens regardless of the Where
+// value. Apple's own cfgutil exhibits the same behavior. The argument is
+// preserved for older iOS versions and forward compatibility.
+func (mcInstallConn *Connection) SetWallpaper(image []byte, screen WallpaperScreen) error {
+	request := map[string]interface{}{
+		"RequestType": "Settings",
+		"Settings": []interface{}{
+			map[string]interface{}{
+				"Item":  "Wallpaper",
+				"Where": int(screen),
+				"Image": image,
+			},
+		},
+	}
+	dict, err := mcInstallConn.sendAndReceive(request)
+	if err != nil {
+		return err
+	}
+	if !checkStatus(dict) {
+		return fmt.Errorf("set-wallpaper response had error %+v", dict)
+	}
+	settings, ok := dict["Settings"].([]interface{})
+	if !ok || len(settings) == 0 {
+		return fmt.Errorf("set-wallpaper response missing Settings array %+v", dict)
+	}
+	inner, ok := settings[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("set-wallpaper Settings[0] not a dict %+v", dict)
+	}
+	if status, _ := inner["Status"].(string); status != "Acknowledged" {
+		return fmt.Errorf("set-wallpaper item status: %+v", inner)
+	}
+	return nil
+}
+
+// SetWallpaperSupervised escalates with the supervisor identity (PKCS#12) and
+// then issues the wallpaper command. Setting wallpapers requires a supervised
+// device.
+func (mcInstallConn *Connection) SetWallpaperSupervised(image []byte, screen WallpaperScreen, p12bytes []byte, p12Password string) error {
+	if err := mcInstallConn.Escalate(p12bytes, p12Password); err != nil {
+		return err
+	}
+	return mcInstallConn.SetWallpaper(image, screen)
+}
+
 // GetCloudConfiguration retrieves the cloud configuration from the device.
 // This includes settings like SkipSetup options, supervision status, and organization info.
 func (mcInstallConn *Connection) GetCloudConfiguration() (map[string]interface{}, error) {

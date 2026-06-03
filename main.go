@@ -54,6 +54,7 @@ import (
 	"github.com/danielpaulus/go-ios/ios/notificationproxy"
 	"github.com/danielpaulus/go-ios/ios/ostrace"
 	"github.com/danielpaulus/go-ios/ios/pcap"
+	"github.com/danielpaulus/go-ios/ios/springboard"
 	syslog "github.com/danielpaulus/go-ios/ios/syslog"
 	"github.com/docopt/docopt-go"
 	log "github.com/sirupsen/logrus"
@@ -151,6 +152,10 @@ Usage:
   ios screenshot [options] [--output=<outfile>] [--stream] [--port=<port>]
   ios setlocation [options] [--lat=<lat>] [--lon=<lon>]
   ios setlocationgpx [options] [--gpxfilepath=<gpxfilepath>]
+  ios set-wallpaper <imagePath> [--screen=<screen>] [--p12file=<orgid>] [--password=<p12password>] [options]
+  ios get-wallpaper [--output=<outfile>] [options]
+  ios get-icon-layout [--output=<outfile>] [options]
+  ios set-icon-layout <layoutFile> [options]
   ios syslog [--parse] [options]
   ios ostrace [--pid=<processID>] [--process=<processName>] [--follow] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>] [options]
   ios sysmontap [options]
@@ -385,6 +390,27 @@ The commands work as following:
 
     ios setlocationgpx [options] [--gpxfilepath=<gpxfilepath>]      Updates the location of the device based on the data in a GPX file.
                                                                     Ex.: setlocationgpx --gpxfilepath=/home/username/location.gpx
+
+    ios set-wallpaper <imagePath> [--screen=<screen>] [--p12file=<orgid>] [--password=<p12password>] [options]
+                                                                    Set the device wallpaper from a JPEG/PNG file. --screen is lock|home|both (default home).
+                                                                    Requires supervision: pass the supervisor identity .p12 with --p12file and the password
+                                                                    via --password or P12_PASSWORD env var. Note: on iOS 16+ both lock and home screens are
+                                                                    linked as a pair, so the device sets both regardless of --screen. The flag is preserved
+                                                                    for older-iOS / forward-compat. Apple's own cfgutil exhibits the same behavior.
+
+    ios get-wallpaper [--output=<outfile>] [options]                Save the home screen wallpaper as PNG. Default output is wallpaper.png.
+                                                                    Does not require supervision. Lock screen wallpaper is not exposed by iOS.
+                                                                    Note: this RPC may EOF on iOS 18 (see pymobiledevice3 #1450).
+
+    ios get-icon-layout [--output=<outfile>] [options]              Save the home screen icon layout as JSON (default stdout). Round-trippable: feed the
+                                                                    file back to set-icon-layout to restore. Note: the iOS 14+ "Edit Pages" per-page
+                                                                    hidden bit is not exposed by springboardservices, so a fetched layout will not include
+                                                                    hidden pages.
+
+    ios set-icon-layout <layoutFile> [options]                      Push a previously-saved icon layout JSON file back to the device.
+                                                                    iOS requires every installed app to occupy a slot. Per cfgutil docs: "unexpected
+                                                                    behavior may occur if the given layout does not contain every icon on the device".
+                                                                    Missing apps are re-paginated, not hidden.
 
     ios syslog [--parse] [options]                                  Prints a device's log output, Use --parse to parse the fields from the log
     ios ostrace [--pid=<processID>] [--process=<processName>] [--follow] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>]
@@ -657,6 +683,46 @@ The commands work as following:
 		}
 		exitIfError("failed erasing", mcinstall.Prepare(device, skip, certBytes, orgname, locale, lang))
 		fmt.Print(convertToJSONString("ok"))
+		return
+	}
+
+	b, _ = arguments.Bool("set-wallpaper")
+	if b {
+		imagePath, _ := arguments.String("<imagePath>")
+		p12file, _ := arguments.String("--p12file")
+		p12password, _ := arguments.String("--password")
+		if p12password == "" {
+			p12password = os.Getenv("P12_PASSWORD")
+		}
+		screen, _ := arguments.String("--screen")
+		if screen == "" {
+			screen = "home"
+		}
+		handleSetWallpaper(device, imagePath, screen, p12file, p12password)
+		return
+	}
+
+	b, _ = arguments.Bool("get-wallpaper")
+	if b {
+		out, _ := arguments.String("--output")
+		if out == "" {
+			out = "wallpaper.png"
+		}
+		handleGetWallpaper(device, out)
+		return
+	}
+
+	b, _ = arguments.Bool("get-icon-layout")
+	if b {
+		out, _ := arguments.String("--output")
+		handleGetIconLayout(device, out)
+		return
+	}
+
+	b, _ = arguments.Bool("set-icon-layout")
+	if b {
+		layoutFile, _ := arguments.String("<layoutFile>")
+		handleSetIconLayout(device, layoutFile)
 		return
 	}
 
@@ -2349,6 +2415,68 @@ func handleProfileList(device ios.DeviceEntry) {
 	list, err := profileService.HandleList()
 	exitIfError("failed getting profile list", err)
 	fmt.Println(convertToJSONString(list))
+}
+
+func handleSetWallpaper(device ios.DeviceEntry, imagePath, screen, p12file, p12password string) {
+	if p12file == "" {
+		log.Fatal("--p12file is required (set-wallpaper needs a supervisor identity)")
+	}
+	screenValue, err := mcinstall.ParseWallpaperScreen(screen)
+	exitIfError("invalid --screen", err)
+	imageBytes, err := os.ReadFile(imagePath)
+	exitIfError("could not read image file", err)
+	p12bytes, err := os.ReadFile(p12file)
+	exitIfError("could not read p12 file", err)
+
+	conn, err := mcinstall.New(device)
+	exitIfError("starting mcinstall failed", err)
+	defer conn.Close()
+
+	err = conn.SetWallpaperSupervised(imageBytes, screenValue, p12bytes, p12password)
+	exitIfError("failed setting wallpaper", err)
+	fmt.Println(convertToJSONString("ok"))
+}
+
+func handleGetWallpaper(device ios.DeviceEntry, output string) {
+	client, err := springboard.NewClient(device)
+	exitIfError("could not connect to springboardservices", err)
+	defer client.Close()
+	pngBytes, err := client.GetHomeScreenWallpaperPNG()
+	exitIfError("could not fetch wallpaper", err)
+	err = os.WriteFile(output, pngBytes, 0o644)
+	exitIfError("could not write wallpaper file", err)
+	fmt.Println(convertToJSONString(map[string]any{"path": output, "bytes": len(pngBytes)}))
+}
+
+func handleGetIconLayout(device ios.DeviceEntry, output string) {
+	client, err := springboard.NewClient(device)
+	exitIfError("could not connect to springboardservices", err)
+	defer client.Close()
+	state, err := client.GetIconLayout("2")
+	exitIfError("could not fetch icon layout", err)
+	jsonBytes, err := json.MarshalIndent(state, "", "  ")
+	exitIfError("could not marshal layout", err)
+	if output == "" {
+		fmt.Println(string(jsonBytes))
+		return
+	}
+	err = os.WriteFile(output, jsonBytes, 0o644)
+	exitIfError("could not write layout file", err)
+	fmt.Println(convertToJSONString(map[string]any{"path": output, "bytes": len(jsonBytes)}))
+}
+
+func handleSetIconLayout(device ios.DeviceEntry, layoutFile string) {
+	raw, err := os.ReadFile(layoutFile)
+	exitIfError("could not read layout file", err)
+	var state any
+	err = json.Unmarshal(raw, &state)
+	exitIfError("layout file is not valid JSON", err)
+	client, err := springboard.NewClient(device)
+	exitIfError("could not connect to springboardservices", err)
+	defer client.Close()
+	err = client.SetIconLayout(state)
+	exitIfError("could not set icon layout", err)
+	fmt.Println(convertToJSONString("ok"))
 }
 
 func startForwarding(device ios.DeviceEntry, hostPort uint16, targetPort uint16) {
