@@ -1549,7 +1549,7 @@ The commands work as following:
 			defer outputFile.Close()
 
 			// Download file using streaming to minimize memory usage
-			slog.Info("downloading", "remote", remotePath, "local", localPath)
+			slog.Info(fmt.Sprintf("Downloading %s to %s...", remotePath, localPath))
 			err = conn.PullFile(remotePath, outputFile)
 			exitIfError("file pull: failed to download file", err)
 
@@ -1566,7 +1566,7 @@ The commands work as following:
 				}
 				fmt.Println(convertToJSONString(result))
 			} else {
-				slog.Info("downloaded", "bytes", fileSize, "local", localPath)
+				slog.Info(fmt.Sprintf("Downloaded %d bytes to %s", fileSize, localPath))
 			}
 		}
 
@@ -1595,7 +1595,7 @@ The commands work as following:
 			defer file.Close()
 
 			// Upload file using streaming to minimize memory usage
-			slog.Info("uploading", "local", localPath, "remote", remotePath)
+			slog.Info(fmt.Sprintf("Uploading %s to %s...", localPath, remotePath))
 			err = conn.PushFile(remotePath, file, fileSize, permissions, uid, gid)
 			exitIfError("push: failed to upload file", err)
 
@@ -1607,7 +1607,7 @@ The commands work as following:
 				}
 				fmt.Println(convertToJSONString(result))
 			} else {
-				slog.Info("uploaded", "bytes", fileSize, "remote", remotePath)
+				slog.Info(fmt.Sprintf("Uploaded %d bytes to %s", fileSize, remotePath))
 			}
 		}
 
@@ -1963,7 +1963,7 @@ func runWdaCommand(device ios.DeviceEntry, arguments docopt.Opts) bool {
 			slog.Error("WDA process ended unexpectedly")
 			os.Exit(1)
 		case signal := <-c:
-			slog.Info("os signal received, closing...", "signal", signal)
+			slog.Info(fmt.Sprintf("os signal %d received, closing...", signal))
 			stopWda()
 		}
 		slog.Info("Done Closing")
@@ -2080,11 +2080,11 @@ func deviceState(device ios.DeviceEntry, list bool, enable bool, profileTypeId s
 		slog.Info("Enabling profile.. (this can take a while for ThermalConditions)")
 		err = control.Enable(pType, profile)
 		exitIfError("could not enable profile", err)
-		slog.Info("profile is active! waiting for SIGTERM..", "profileType", profileTypeId, "profile", profileId)
+		slog.Info(fmt.Sprintf("Profile %s - %s is active! waiting for SIGTERM..", profileTypeId, profileId))
 		c := make(chan os.Signal, syscall.SIGTERM)
 		signal.Notify(c, os.Interrupt)
 		<-c
-		slog.Info("disabling profiletype", "profileType", profileTypeId)
+		slog.Info(fmt.Sprintf("Disabling profiletype %s", profileTypeId))
 		err = control.Disable(pType)
 		exitIfError("could not disable profile", err)
 		slog.Info("ok")
@@ -2422,7 +2422,7 @@ func handleProfileRemove(device ios.DeviceEntry, identifier string) {
 	exitIfError("Starting mcInstall failed with", err)
 	err = profileService.RemoveProfile(identifier)
 	exitIfError("failed adding profile", err)
-	slog.Info("profile removed", "identifier", identifier)
+	slog.Info(fmt.Sprintf("profile '%s' removed", identifier))
 }
 
 func handleProfileAdd(device ios.DeviceEntry, file string) {
@@ -2565,10 +2565,10 @@ func startMultiForwarding(device ios.DeviceEntry, mappings []string) {
 			exitIfError(fmt.Sprintf("failed to forward %d:%d", hostPort, targetPort), err)
 		}
 		listeners = append(listeners, cl)
-		slog.Info("forwarding", "hostPort", hostPort, "targetPort", targetPort)
+		slog.Info(fmt.Sprintf("Forwarding %d -> %d", hostPort, targetPort))
 	}
 
-	slog.Info("started port forwards", "count", len(listeners))
+	slog.Info(fmt.Sprintf("Started %d port forwards", len(listeners)))
 
 	// Wait for interrupt
 	c := make(chan os.Signal, 1)
@@ -3000,7 +3000,7 @@ func runOsTrace(device ios.DeviceEntry, pid int, processName string, messageFilt
 				if err != nil {
 					if follow {
 						if !waitingLogged {
-							slog.Info("Waiting for process to appear...", "process", processName)
+							slog.Info(fmt.Sprintf("Waiting for process %q to appear...", processName))
 							waitingLogged = true
 						}
 						if sleepOrCancel(2 * time.Second) {
@@ -3011,7 +3011,7 @@ func runOsTrace(device ios.DeviceEntry, pid int, processName string, messageFilt
 					exitIfError("process not found", err)
 				}
 				pid = int(proc.Pid)
-				slog.Info("Resolved process to PID", "process", processName, "pid", pid)
+				slog.Info(fmt.Sprintf("Resolved process %q to PID %d", processName, pid))
 				resolved = true
 			}
 		}
@@ -3045,7 +3045,7 @@ func runOsTrace(device ios.DeviceEntry, pid int, processName string, messageFilt
 						return
 					case <-ticker.C:
 						if !isProcessAlive(device, uint64(targetPid)) {
-							slog.Info("Process no longer running", "pid", targetPid)
+							slog.Info(fmt.Sprintf("Process PID %d no longer running", targetPid))
 							select {
 							case reconnect <- struct{}{}:
 							default:
@@ -3080,7 +3080,7 @@ func runOsTrace(device ios.DeviceEntry, pid int, processName string, messageFilt
 				slog.Info("os_trace stream ended, reconnecting...")
 				pid = -1
 			} else {
-				slog.Info("Process terminated; stopping follow.", "pid", pid)
+				slog.Info(fmt.Sprintf("Process PID %d terminated; stopping follow.", pid))
 				return
 			}
 		case err := <-done:
@@ -3196,14 +3196,14 @@ func pairDevice(device ios.DeviceEntry, orgIdentityP12File string, p12Password s
 	if orgIdentityP12File == "" {
 		err := ios.Pair(device)
 		exitIfError("Pairing failed", err)
-		slog.Info("Successfully paired", "udid", device.Properties.SerialNumber)
+		slog.Info(fmt.Sprintf("Successfully paired %s", device.Properties.SerialNumber))
 		return
 	}
 	p12, err := os.ReadFile(orgIdentityP12File)
 	exitIfError("Invalid file:"+orgIdentityP12File, err)
 	err = ios.PairSupervised(device, p12, p12Password)
 	exitIfError("Pairing failed", err)
-	slog.Info("Successfully paired", "udid", device.Properties.SerialNumber)
+	slog.Info(fmt.Sprintf("Successfully paired %s", device.Properties.SerialNumber))
 }
 
 func startTunnel(ctx context.Context, recordsPath string, tunnelInfoPort int, userspaceTUN bool) {
