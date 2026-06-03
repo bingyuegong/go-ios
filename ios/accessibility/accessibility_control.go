@@ -4,58 +4,39 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"slices"
-	"sync"
-	"time"
 
 	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
+	"github.com/danielpaulus/go-ios/ios/golog"
 	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
-	log "github.com/sirupsen/logrus"
 )
+
+const logModule = "go-ios/accessibility"
 
 type Notification struct {
 	Value interface{}
 	Err   error
 }
 
+// AccessibilityInspectorNotifier is the interface that consumers implement
+// to receive asynchronous device notifications.
+type AccessibilityInspectorNotifier interface {
+	HostAppStateChanged(notification Notification)
+	HostInspectorNotificationReceived(notification Notification)
+}
+
 // ControlInterface provides a simple interface to controlling the AX service on the device
 // It only needs the global dtx channel as all AX methods are invoked on it.
 type ControlInterface struct {
-	cm          *dtx.Connection
-	channel     *dtx.Channel
-	subscribers []chan Notification
-	mu          sync.RWMutex
+	cm       *dtx.Connection
+	channel  *dtx.Channel
+	notifier AccessibilityInspectorNotifier
 }
 
-// broadcast sends a notification to all active subscribers safely.
-func (a *ControlInterface) broadcast(n Notification, timeout time.Duration) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	for _, ch := range a.subscribers {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-		select {
-		case ch <- n:
-		case <-ctx.Done():
-			log.Warnf("Subscriber blocked >%v. Dropping notification.", timeout)
-		}
-		cancel()
-	}
-}
-
-// Close shuts down the connection and closes all subscriber channels.
+// Close shuts down the connection.
 func (a *ControlInterface) Close() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if a.cm != nil {
 		a.cm.Close()
 	}
-	for _, ch := range a.subscribers {
-		close(ch)
-	}
-	a.subscribers = nil
 	return nil
 }
 
@@ -95,71 +76,54 @@ type AXElementData struct {
 	SpokenDescription    string `json:"spokenDescription"`    // Spoken description of the element
 }
 
-func (a *ControlInterface) readhostAppStateChanged() {
+func (a *ControlInterface) readhostAppStateChanged(ctx context.Context) {
 	for {
-		msg := a.channel.ReceiveMethodCall("hostAppStateChanged:")
-		stateChange, err := nskeyedarchiver.Unarchive(msg.Auxiliary.GetArguments()[0].([]byte))
+		msg, err := a.channel.ReceiveMethodCallWithTimeout(ctx, "hostAppStateChanged:")
 		if err != nil {
-			log.Errorf("Error unarchiving app state change: %v", err)
-			continue
+			return
 		}
-		value := stateChange[0]
-		log.Infof("hostAppStateChanged:%s", value)
-	}
-}
-
-// Subscribe returns a read-only channel for the consumer and a "cancel" function to unsubscribe
-func (a *ControlInterface) Subscribe() (<-chan Notification, func()) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	// Unbuffered channel, Sends will block until the consumer reads
-	ch := make(chan Notification)
-
-	a.subscribers = append(a.subscribers, ch)
-
-	unsubscribe := func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-
-		idx := slices.Index(a.subscribers, ch)
-		if idx >= 0 {
-			close(a.subscribers[idx])
-			a.subscribers = slices.Delete(a.subscribers, idx, idx+1)
-		}
-	}
-
-	return ch, unsubscribe
-}
-
-func (a *ControlInterface) readhostInspectorNotificationReceived(timeout time.Duration) {
-	for {
-		msg := a.channel.ReceiveMethodCall("hostInspectorNotificationReceived:")
 		rawBytes := msg.Auxiliary.GetArguments()[0].([]byte)
-
+		stateChange, err := nskeyedarchiver.Unarchive(rawBytes)
 		var notification Notification
-		decoded, err := nskeyedarchiver.Unarchive(rawBytes)
+		if err != nil {
+			notification = Notification{Err: err}
+		} else {
+			value := stateChange[0]
+			golog.Info("hostAppStateChanged", "module", logModule, "service", serviceName, "value", value)
+			notification = Notification{Value: value}
+		}
+		a.notifier.HostAppStateChanged(notification)
+	}
+}
 
+func (a *ControlInterface) readhostInspectorNotificationReceived(ctx context.Context) {
+	for {
+		msg, err := a.channel.ReceiveMethodCallWithTimeout(ctx, "hostInspectorNotificationReceived:")
+		if err != nil {
+			return
+		}
+		rawBytes := msg.Auxiliary.GetArguments()[0].([]byte)
+		decoded, err := nskeyedarchiver.Unarchive(rawBytes)
+		var notification Notification
 		if err != nil {
 			notification = Notification{Err: err}
 		} else {
 			val := decoded[0].(map[string]interface{})["Value"]
-			log.Infof("hostInspectorNotificationReceived:%s", val)
+			golog.Info("hostInspectorNotificationReceived", "module", logModule, "service", serviceName, "value", val)
 			notification = Notification{Value: val}
 		}
-
-		a.broadcast(notification, timeout)
+		a.notifier.HostInspectorNotificationReceived(notification)
 	}
 }
 
 // init wires up event receivers and gets Info from the device
-func (a *ControlInterface) init(timeout time.Duration) error {
+func (a *ControlInterface) init(ctx context.Context) error {
 	a.channel.RegisterMethodForRemote("hostInspectorCurrentElementChanged:")
 	a.channel.RegisterMethodForRemote("hostInspectorMonitoredEventTypeChanged:")
 	a.channel.RegisterMethodForRemote("hostAppStateChanged:")
 	a.channel.RegisterMethodForRemote("hostInspectorNotificationReceived:")
-	go a.readhostAppStateChanged()
-	go a.readhostInspectorNotificationReceived(timeout)
+	go a.readhostAppStateChanged(ctx)
+	go a.readhostInspectorNotificationReceived(ctx)
 
 	err := a.notifyPublishedCapabilities()
 	if err != nil {
@@ -171,30 +135,30 @@ func (a *ControlInterface) init(timeout time.Duration) error {
 		return err
 	}
 
-	log.Info("Device Capabilities:", deviceCapabilities)
+	golog.Info("Device Capabilities", "module", logModule, "service", serviceName, "capabilities", deviceCapabilities)
 	apiVersion, err := a.deviceAPIVersion()
 	if err != nil {
 		return err
 	}
-	log.Info("Api version:", apiVersion)
+	golog.Info("Api version", "module", logModule, "service", serviceName, "version", apiVersion)
 
 	auditCaseIds, err := a.deviceAllAuditCaseIDs(apiVersion)
 	if err != nil {
 		return err
 	}
-	log.Info("AuditCaseIDs", auditCaseIds)
+	golog.Info("AuditCaseIDs", "module", logModule, "service", serviceName, "auditCaseIds", auditCaseIds)
 
 	deviceInspectorSupportedEventTypes, err := a.deviceInspectorSupportedEventTypes()
 	if err != nil {
 		return err
 	}
-	log.Info("deviceInspectorSupportedEventTypes:", deviceInspectorSupportedEventTypes)
+	golog.Info("deviceInspectorSupportedEventTypes", "module", logModule, "service", serviceName, "eventTypes", deviceInspectorSupportedEventTypes)
 
 	canNav, err := a.deviceInspectorCanNavWhileMonitoringEvents()
 	if err != nil {
 		return err
 	}
-	log.Info("deviceInspectorCanNavWhileMonitoringEvents:", canNav)
+	golog.Info("deviceInspectorCanNavWhileMonitoringEvents", "module", logModule, "service", serviceName, "canNav", canNav)
 
 	err = a.deviceSetAppMonitoringEnabled(true)
 	if err != nil {
@@ -204,10 +168,10 @@ func (a *ControlInterface) init(timeout time.Duration) error {
 	for _, v := range auditCaseIds {
 		name, err := a.deviceHumanReadableDescriptionForAuditCaseID(v)
 		if err != nil {
-			log.Warnf("Failed to get human readable description for audit case ID %s: %v", v, err)
+			golog.Warn("failed to get human readable description for audit case ID", "module", logModule, "service", serviceName, "auditCaseId", v, "error", err)
 			continue
 		}
-		log.Infof("%s -- %s", v, name)
+		golog.Info("audit case description", "module", logModule, "service", serviceName, "auditCaseId", v, "name", name)
 	}
 	return nil
 }
@@ -225,13 +189,13 @@ func (a *ControlInterface) EnableSelectionMode() {
 func (a *ControlInterface) SwitchToDevice() {
 	a.TurnOff()
 	resp, _ := a.deviceAccessibilitySettings()
-	log.Info("AX Settings received:", resp)
+	golog.Info("AX Settings received", "module", logModule, "service", serviceName, "settings", resp)
 	a.deviceInspectorShowIgnoredElements(false)
 	a.deviceSetAuditTargetPid(0)
 	a.deviceInspectorFocusOnElement()
 	_, err := a.awaitHostInspectorCurrentElementChanged(context.Background())
 	if err != nil {
-		log.Warnf("await element change failed during SwitchToDevice: %v", err)
+		golog.Warn("await element change failed during SwitchToDevice", "module", logModule, "service", serviceName, "error", err)
 	}
 	a.deviceInspectorPreviewOnElement()
 	a.deviceHighlightIssue()
@@ -244,7 +208,7 @@ func (a *ControlInterface) TurnOff() {
 	a.deviceInspectorFocusOnElement()
 	_, err := a.awaitHostInspectorCurrentElementChanged(context.Background())
 	if err != nil {
-		log.Warnf("await element change failed during TurnOff: %v", err)
+		golog.Warn("await element change failed during TurnOff", "module", logModule, "service", serviceName, "error", err)
 	}
 	a.deviceInspectorPreviewOnElement()
 	a.deviceHighlightIssue()
@@ -480,13 +444,13 @@ func (a *ControlInterface) GetElement(ctx context.Context) (AXElementData, error
 }
 
 func (a *ControlInterface) UpdateAccessibilitySetting(name string, val interface{}) {
-	log.Info("Updating Accessibility Setting")
+	golog.Info("Updating Accessibility Setting", "module", logModule, "service", serviceName, "setting", name)
 
 	resp, err := a.updateAccessibilitySetting(name, val)
 	if err != nil {
 		panic(fmt.Sprintf("Failed setting: %s", err))
 	}
-	log.Info("Setting Updated", resp)
+	golog.Info("Setting Updated", "module", logModule, "service", serviceName, "setting", name, "response", resp)
 }
 
 func (a *ControlInterface) ResetToDefaultAccessibilitySettings() error {
@@ -500,10 +464,10 @@ func (a *ControlInterface) ResetToDefaultAccessibilitySettings() error {
 func (a *ControlInterface) awaitHostInspectorCurrentElementChanged(ctx context.Context) (map[string]interface{}, error) {
 	msg, err := a.channel.ReceiveMethodCallWithTimeout(ctx, "hostInspectorCurrentElementChanged:")
 	if err != nil {
-		log.Errorf("Failed to receive hostInspectorCurrentElementChanged: %v", err)
+		golog.Error("failed to receive hostInspectorCurrentElementChanged", "module", logModule, "service", serviceName, "error", err)
 		return nil, fmt.Errorf("failed to receive hostInspectorCurrentElementChanged: %w", err)
 	}
-	log.Info("received hostInspectorCurrentElementChanged")
+	golog.Info("received hostInspectorCurrentElementChanged", "module", logModule, "service", serviceName)
 	result, err := nskeyedarchiver.Unarchive(msg.Auxiliary.GetArguments()[0].([]byte))
 	if err != nil {
 		panic(fmt.Sprintf("Failed unarchiving: %s this is a bug and should not happen", err))
@@ -514,7 +478,7 @@ func (a *ControlInterface) awaitHostInspectorCurrentElementChanged(ctx context.C
 func (a *ControlInterface) awaitHostInspectorMonitoredEventTypeChanged() {
 	msg := a.channel.ReceiveMethodCall("hostInspectorMonitoredEventTypeChanged:")
 	n, _ := nskeyedarchiver.Unarchive(msg.Auxiliary.GetArguments()[0].([]byte))
-	log.Infof("hostInspectorMonitoredEventTypeChanged: was set to %d by the device", n[0])
+	golog.Info("hostInspectorMonitoredEventTypeChanged set by the device", "module", logModule, "service", serviceName, "value", n[0])
 }
 
 func (a *ControlInterface) deviceInspectorMoveWithOptions(direction MoveDirection) {
