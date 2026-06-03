@@ -19,6 +19,8 @@ global_options:
     description: Target a specific device.
   - flag: --tunnel-info-port=<port>
     description: Tunnel info API port (default 28100).
+  - flag: --tunnel-info-host=<host>
+    description: Tunnel info API host (default 127.0.0.1 or GO_IOS_AGENT_HOST).
   - flag: --address=<ipv6addr>
     description: Device tunnel address.
   - flag: --rsd-port=<port>

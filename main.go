@@ -175,7 +175,10 @@ Options:
   -h --help                 Show this screen.
   --udid=<udid>             UDID of the device. Can also be set via GO_IOS_UDID environment variable.
   --tunnel-info-port=<port> When go-ios is used to manage tunnels for iOS 17+,
-                            it exposes them on an HTTP-API for localhost (default port: 28100)
+                            it exposes them on an HTTP-API (default port: 28100)
+  --tunnel-info-host=<host> Host the tunnel-info HTTP-API binds to and is queried on.
+                            Defaults to 127.0.0.1, or the GO_IOS_AGENT_HOST environment variable
+                            if set. Use 0.0.0.0 to reach the API from another host or container.
   --address=<ipv6addrr>     Address of the device on the interface.
                             This parameter is optional and can be set if a tunnel created by MacOS needs to be used.
                             To get this value run "log stream --debug --info --predicate 'eventMessage LIKE "*Tunnel established*" OR eventMessage LIKE "*for server port*"'",
@@ -563,7 +566,7 @@ The commands work as following:
 	}
 
 	tunnelInfoHost, err := arguments.String("--tunnel-info-host")
-	if err != nil {
+	if err != nil || tunnelInfoHost == "" {
 		tunnelInfoHost = ios.HttpApiHost()
 	}
 
@@ -1734,7 +1737,7 @@ The commands work as following:
 			if strings.ToLower(pairRecordsPath) == "default" {
 				pairRecordsPath = "/var/db/lockdown/RemotePairing/user_501"
 			}
-			startTunnel(context.TODO(), pairRecordsPath, tunnelInfoPort, useUserspaceNetworking)
+			startTunnel(context.TODO(), pairRecordsPath, tunnelInfoHost, tunnelInfoPort, useUserspaceNetworking)
 		} else if listCommand {
 			tunnels, err := tunnel.ListRunningTunnels(tunnelInfoHost, tunnelInfoPort)
 			exitIfError("failed to get tunnel infos", err)
@@ -3206,7 +3209,7 @@ func pairDevice(device ios.DeviceEntry, orgIdentityP12File string, p12Password s
 	slog.Info(fmt.Sprintf("Successfully paired %s", device.Properties.SerialNumber))
 }
 
-func startTunnel(ctx context.Context, recordsPath string, tunnelInfoPort int, userspaceTUN bool) {
+func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string, tunnelInfoPort int, userspaceTUN bool) {
 	pm, err := tunnel.NewPairRecordManager(recordsPath)
 	exitIfError("could not creat pair record manager", err)
 	tm := tunnel.NewTunnelManager(pm, userspaceTUN)
@@ -3228,7 +3231,7 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoPort int, us
 	}()
 
 	go func() {
-		err := tunnel.ServeTunnelInfo(tm, tunnelInfoPort)
+		err := tunnel.ServeTunnelInfo(tm, tunnelInfoHost, tunnelInfoPort)
 		if err != nil {
 			exitIfError("failed to start tunnel server", err)
 		}

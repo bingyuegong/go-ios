@@ -91,10 +91,11 @@ func RunAgent(mode string, args ...string) error {
 
 // ServeTunnelInfo starts a simple http serve that exposes the tunnel information about the running tunnel.
 // The API has two endpoints:
-// 1. GET    localhost:{PORT}/tunnel/{UDID} to get the tunnel info for a specific device
-// 2. DELETE localhost:{PORT}/tunnel/{UDID} to stop a device tunnel
-// 3. GET    localhost:{PORT}/tunnels       to get a list of all tunnels
-func ServeTunnelInfo(tm *TunnelManager, port int) error {
+// 1. GET    {HOST}:{PORT}/tunnel/{UDID} to get the tunnel info for a specific device
+// 2. DELETE {HOST}:{PORT}/tunnel/{UDID} to stop a device tunnel
+// 3. GET    {HOST}:{PORT}/tunnels       to get a list of all tunnels
+// The host defaults to 127.0.0.1 and can be changed with --tunnel-info-host / GO_IOS_AGENT_HOST.
+func ServeTunnelInfo(tm *TunnelManager, host string, port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusOK)
@@ -161,7 +162,7 @@ func ServeTunnelInfo(tm *TunnelManager, port int) error {
 			return
 		}
 	})
-	if err := http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", port), mux); err != nil {
+	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", host, port), mux); err != nil {
 		return fmt.Errorf("ServeTunnelInfo: failed to start http server: %w", err)
 	}
 	return nil
