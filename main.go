@@ -677,16 +677,6 @@ The commands work as following:
 		encType, _ := arguments.String("--enc-type")
 		remove, _ := arguments.Bool("--remove")
 
-		if !remove && (ssid == "" || psw == "") {
-			log.Fatal("both ssid and password must be specified to prepare wifi")
-			return
-		}
-
-		if remove && ssid == "" {
-			log.Fatal("ssid must be specified to remove wifi")
-			return
-		}
-
 		if encType == "" {
 			encType = "WPA"
 		}
