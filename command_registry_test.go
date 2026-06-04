@@ -35,3 +35,25 @@ func TestDispatchCommandReturnsFalseWithoutMatch(t *testing.T) {
 		t.Fatal("dispatchCommand returned true")
 	}
 }
+
+func TestDeviceListCommandOnlyMatchesTopLevelList(t *testing.T) {
+	if !isDeviceListCommand(docopt.Opts{"list": true}) {
+		t.Fatal("top-level list command did not match")
+	}
+
+	for _, commandName := range []string{"diagnostics", "image", "devicestate", "profile"} {
+		args := docopt.Opts{"list": true, commandName: true}
+		if isDeviceListCommand(args) {
+			t.Fatalf("list subcommand for %s matched top-level list", commandName)
+		}
+	}
+}
+
+func TestTunnelCommandMatcher(t *testing.T) {
+	if !isTunnelCommand(docopt.Opts{"tunnel": true}) {
+		t.Fatal("tunnel command did not match")
+	}
+	if isTunnelCommand(docopt.Opts{"tunnel": false}) {
+		t.Fatal("non-tunnel command matched")
+	}
+}

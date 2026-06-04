@@ -449,212 +449,32 @@ The commands work as following:
   `, version)
 	arguments, err := docopt.ParseDoc(usage)
 	exitIfError("failed parsing args", err)
-	disableJSON, _ := arguments.Bool("--nojson")
-	if disableJSON {
-		JSONdisabled = true
-	}
-
-	pretty, _ := arguments.Bool("--pretty")
-	if pretty {
-		prettyJSON = true
-	}
-
-	// Build a single slog logger from the flags and install it as the process
-	// default. go-ios's own logging (ios/golog) falls back to slog.Default(),
-	// so this configures the whole CLI; library embedders instead use
-	// ios.SetLogger to route go-ios without touching their slog.Default().
-	traceLevelEnabled, _ := arguments.Bool("--trace")
-	verboseLoggingEnabledLong, _ := arguments.Bool("--verbose")
-
-	level := slog.LevelInfo
-	if verboseLoggingEnabledLong {
-		level = slog.LevelDebug
-	}
-	if traceLevelEnabled {
-		// trace wins over verbose
-		level = ios.LevelTrace
-	}
-
-	handlerOpts := &slog.HandlerOptions{
-		Level: level,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			// slog renders our custom trace level as "DEBUG-4"; rename it to "TRACE".
-			if a.Key == slog.LevelKey {
-				if lvl, ok := a.Value.Any().(slog.Level); ok && lvl == ios.LevelTrace {
-					a.Value = slog.StringValue("TRACE")
-				}
-			}
-			return a
-		},
-	}
-
-	var handler slog.Handler
-	if disableJSON {
-		// --nojson mirrors the old logrus TextFormatter default.
-		handler = slog.NewTextHandler(os.Stderr, handlerOpts)
-	} else {
-		handler = slog.NewJSONHandler(os.Stderr, handlerOpts)
-	}
-	logger := slog.New(handler)
-
-	// Wire up logging two ways:
-	//
-	//  1. slog.SetDefault makes this the process-wide default logger. The ios
-	//     CLI's own slog calls (and any third-party library using slog) go here.
-	//
-	//  2. ios.SetLogger explicitly routes go-ios's *library* logging to the same
-	//     logger. go-ios logs through its internal ios/golog seam, which falls
-	//     back to slog.Default() when SetLogger was never called — so for this
-	//     CLI the call below is technically redundant with SetDefault above.
-	//
-	// We still call it on purpose, as the canonical example for embedders: a
-	// program that imports go-ios as a library and wants to send *only*
-	// go-ios's logs to a custom logger (without commandeering its own
-	// slog.Default()) does exactly this — ios.SetLogger(yourLogger). Pass nil
-	// to restore go-ios's default behavior.
-	slog.SetDefault(logger)
-	ios.SetLogger(logger)
-
-	if traceLevelEnabled {
-		slog.Info("Set Trace mode")
-	} else if verboseLoggingEnabledLong {
-		slog.Info("Set Debug mode")
-	}
-	slog.Debug("parsed arguments", "args", arguments)
-
-	skipAgent, _ := os.LookupEnv("ENABLE_GO_IOS_AGENT")
-	if skipAgent == "user" || skipAgent == "kernel" {
-		tunnel.RunAgent(skipAgent)
-	}
-
-	if !tunnel.IsAgentRunning() {
-		slog.Warn("go-ios agent is not running. You might need to start it with 'ios tunnel start' for ios17+. Use ENABLE_GO_IOS_AGENT=user for userspace tunnel or ENABLE_GO_IOS_AGENT=kernel for kernel tunnel for the experimental daemon mode.")
-	}
-	shouldPrintVersionNoDashes, _ := arguments.Bool("version")
-	shouldPrintVersion, _ := arguments.Bool("--version")
-	if shouldPrintVersionNoDashes || shouldPrintVersion {
-		printVersion()
+	configureCLI(arguments)
+	if dispatchCommand(commandContext{Args: arguments}, preProxyCommands) {
 		return
 	}
+
 	proxyUrl, _ := arguments.String("--proxyurl")
 	exitIfError("could not parse proxy url", ios.UseHttpProxy(proxyUrl))
 
-	b, _ := arguments.Bool("listen")
-	if b {
-		startListening()
+	if dispatchCommand(commandContext{Args: arguments}, globalCommands) {
 		return
 	}
 
-	listCommand, _ := arguments.Bool("list")
-	diagnosticsCommand, _ := arguments.Bool("diagnostics")
-	imageCommand, _ := arguments.Bool("image")
-	deviceStateCommand, _ := arguments.Bool("devicestate")
-	profileCommand, _ := arguments.Bool("profile")
-
-	if listCommand && !diagnosticsCommand && !imageCommand && !deviceStateCommand && !profileCommand {
-		b, _ = arguments.Bool("--details")
-		printDeviceList(b)
-		return
-	}
-
-	tunnelInfoHost, err := arguments.String("--tunnel-info-host")
-	if err != nil || tunnelInfoHost == "" {
-		tunnelInfoHost = ios.HttpApiHost()
-	}
-
-	tunnelInfoPort, err := arguments.Int("--tunnel-info-port")
-	if err != nil {
-		tunnelInfoPort = ios.HttpApiPort()
-	}
-
-	tunnelCommand, _ := arguments.Bool("tunnel")
-
-	udid, _ := arguments.String("--udid")
-	if udid == "" {
-		udid = os.Getenv("GO_IOS_UDID")
-	}
-	address, addressErr := arguments.String("--address")
-	rsdPort, rsdErr := arguments.Int("--rsd-port")
-	userspaceTunnelHost, userspaceTunnelHostErr := arguments.String("--userspace-host")
-	if userspaceTunnelHostErr != nil {
-		userspaceTunnelHost = ios.HttpApiHost()
-	}
-
-	userspaceTunnelPort, userspaceTunnelErr := arguments.Int("--userspace-port")
-
-	device, err := ios.GetDevice(udid)
-	// device address and rsd port are only available after the tunnel started
-	if !tunnelCommand {
-		exitIfError("Device not found: "+udid, err)
-		if addressErr == nil && rsdErr == nil {
-			if userspaceTunnelErr == nil {
-				device.UserspaceTUN = true
-				device.UserspaceTUNHost = userspaceTunnelHost
-				device.UserspaceTUNPort = userspaceTunnelPort
-			}
-			device = deviceWithRsdProvider(device, udid, address, rsdPort)
-		} else {
-			info, err := tunnel.TunnelInfoForDevice(device.Properties.SerialNumber, tunnelInfoHost, tunnelInfoPort)
-			if err == nil {
-				device.UserspaceTUNPort = info.UserspaceTUNPort
-				device.UserspaceTUNHost = userspaceTunnelHost
-				device.UserspaceTUN = info.UserspaceTUN
-				device = deviceWithRsdProvider(device, udid, info.Address, info.RsdPort)
-			} else {
-				slog.Warn("failed to get tunnel info", "udid", device.Properties.SerialNumber)
-			}
-		}
-	}
+	tunnelInfo := tunnelInfoConfigFromArgs(arguments)
+	device := resolveDevice(arguments, tunnelInfo)
 
 	if dispatchCommand(commandContext{Args: arguments, Device: device}, deviceCommands) {
 		return
 	}
 
-	if tunnelCommand {
-		startCommand, _ := arguments.Bool("start")
-		useUserspaceNetworking, _ := arguments.Bool("--userspace")
-		if startCommand && !useUserspaceNetworking {
-			err := tunnel.CheckPermissions()
-			exitIfError("If --userspace is not set, we need sudo, an admin shell on Windows, or CAP_NET_ADMIN on Linux", err)
-		}
-		if useUserspaceNetworking {
-			slog.Info("Using userspace networking")
-		}
-		stopagent, _ := arguments.Bool("stopagent")
-		listCommand, _ := arguments.Bool("ls")
-		if startCommand {
-			pairRecordsPath, _ := arguments.String("--pair-record-path")
-			if len(pairRecordsPath) == 0 {
-				pairRecordsPath = "."
-			}
-			if strings.ToLower(pairRecordsPath) == "default" {
-				pairRecordsPath = "/var/db/lockdown/RemotePairing/user_501"
-			}
-			startTunnel(context.TODO(), pairRecordsPath, tunnelInfoHost, tunnelInfoPort, useUserspaceNetworking)
-		} else if listCommand {
-			tunnels, err := tunnel.ListRunningTunnels(tunnelInfoHost, tunnelInfoPort)
-			exitIfError("failed to get tunnel infos", err)
-			if disableJSON {
-				for index, t := range tunnels {
-					if 0 != index {
-						fmt.Println()
-					}
-					fmt.Printf("Udid: %s\n  Address: %s\n  RsdPort: %d\n  UserspaceTUN: %v\n  UserspaceTUNPort: %d\n",
-						t.Udid, t.Address, t.RsdPort, t.UserspaceTUN, t.UserspaceTUNPort)
-				}
-			} else {
-				fmt.Println(convertToJSONString(tunnels))
-			}
-		}
-		if stopagent {
-			err := tunnel.CloseAgent()
-			if err != nil {
-				exitIfError("failed to close agent", err)
-			}
-			return
-		}
+	if dispatchTunnelCommand(tunnelCommandContext{
+		Args:           arguments,
+		TunnelInfoHost: tunnelInfo.Host,
+		TunnelInfoPort: tunnelInfo.Port,
+	}) {
+		return
 	}
-
 }
 
 func printSysmontapStats(device ios.DeviceEntry) {
