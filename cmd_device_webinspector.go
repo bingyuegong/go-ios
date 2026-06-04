@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/danielpaulus/go-ios/ios/webinspector"
+	"github.com/google/uuid"
 )
 
 func runWebInspectorCommand(cmdCtx commandContext) {
@@ -32,13 +36,61 @@ func runWebInspectorCommand(cmdCtx commandContext) {
 		return
 	}
 
+	if launch, _ := cmdCtx.Args.Bool("launch"); launch {
+		url, _ := cmdCtx.Args.String("<url>")
+		bundleID, _ := cmdCtx.Args.String("--bundle-id")
+		if bundleID == "" {
+			bundleID = webinspector.SafariBundleID
+		}
+		app, err := client.OpenApp(ctx, bundleID)
+		exitIfError("failed launching app", err)
+		session, err := client.AutomationSession(ctx, app)
+		exitIfError("failed starting automation session", err)
+		defer func() {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer stopCancel()
+			_ = session.Stop(stopCtx)
+		}()
+		exitIfError("failed starting browsing context", session.Start(ctx))
+		exitIfError("failed navigating", session.Navigate(ctx, url))
+		currentURL, _ := session.CurrentURL(ctx)
+		title, _ := session.Title(ctx)
+		fmt.Println(convertToJSONString(map[string]any{"bundleID": bundleID, "url": currentURL, "title": title}))
+		return
+	}
+
 	if eval, _ := cmdCtx.Args.Bool("eval"); eval {
 		pageID, _ := cmdCtx.Args.String("<pageID>")
 		expression, _ := cmdCtx.Args.String("<expression>")
-		app, page := selectWebInspectorPage(ctx, client, pageID)
+		app, page := selectWebInspectorPage(ctx, client, pageID, "")
+		if consoleEnable, _ := cmdCtx.Args.Bool("--console-enable"); consoleEnable {
+			sessionID := strings.ToUpper(uuid.New().String())
+			exitIfError("failed setting up inspector socket", client.SetupInspectorSocket(sessionID, app, page, false))
+			_, _ = client.SendCommand(ctx, sessionID, app, page, int(time.Now().UnixNano()&0x7fffffff), "Console.enable", nil)
+		}
 		result, err := client.Evaluate(ctx, app, page, expression)
 		exitIfError("failed evaluating JavaScript", err)
 		fmt.Println(convertToJSONString(result))
+		return
+	}
+
+	if shell, _ := cmdCtx.Args.Bool("js-shell"); shell {
+		url, _ := cmdCtx.Args.String("<url>")
+		bundleID, _ := cmdCtx.Args.String("--bundle-id")
+		openSafari, _ := cmdCtx.Args.Bool("--open-safari")
+		if openSafari {
+			_, err := client.OpenApp(ctx, webinspector.SafariBundleID)
+			exitIfError("failed opening Safari", err)
+			if bundleID == "" {
+				bundleID = webinspector.SafariBundleID
+			}
+		}
+		app, page := selectWebInspectorPage(ctx, client, "", bundleID)
+		if url != "" {
+			_, err := client.Evaluate(ctx, app, page, fmt.Sprintf("window.location = %q", url))
+			exitIfError("failed navigating", err)
+		}
+		runWebInspectorJSShell(ctx, client, app, page)
 		return
 	}
 
@@ -60,7 +112,7 @@ func runWebInspectorCommand(cmdCtx commandContext) {
 	}
 }
 
-func selectWebInspectorPage(ctx context.Context, client *webinspector.Client, pageID string) (webinspector.Application, webinspector.Page) {
+func selectWebInspectorPage(ctx context.Context, client *webinspector.Client, pageID string, bundleID string) (webinspector.Application, webinspector.Page) {
 	if pageID != "" {
 		app, page, ok := client.FindPage(pageID)
 		if ok {
@@ -69,16 +121,58 @@ func selectWebInspectorPage(ctx context.Context, client *webinspector.Client, pa
 	}
 	pages, err := client.ListPages(ctx, 500*time.Millisecond)
 	exitIfError("failed listing webinspector pages", err)
+	var candidates []webinspector.ApplicationPage
 	for _, candidate := range pages {
 		if candidate.Page.Type != webinspector.WIRTypeWeb && candidate.Page.Type != webinspector.WIRTypeWebPage && candidate.Page.Type != webinspector.WIRTypeJavaScript {
 			continue
 		}
-		if pageID == "" || candidate.Page.Key == pageID {
-			return candidate.Application, candidate.Page
+		if bundleID != "" && candidate.Application.BundleID != bundleID {
+			continue
+		}
+		if pageID != "" && candidate.Page.Key != pageID {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		exitIfError("failed finding webinspector page", fmt.Errorf("no matching page found"))
+	}
+	if len(candidates) > 1 && pageID == "" {
+		if JSONdisabled {
+			for i, candidate := range candidates {
+				fmt.Fprintf(os.Stderr, "[%d] %s %s %s\n", i, candidate.Application.BundleID, candidate.Page.Key, candidate.Page.URL)
+			}
 		}
 	}
-	exitIfError("failed finding webinspector page", fmt.Errorf("page %q not found", pageID))
-	return webinspector.Application{}, webinspector.Page{}
+	return candidates[0].Application, candidates[0].Page
+}
+
+func runWebInspectorJSShell(ctx context.Context, client *webinspector.Client, app webinspector.Application, page webinspector.Page) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("> ")
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				fmt.Println()
+				return
+			}
+			exitIfError("failed reading shell input", err)
+		}
+		expression := strings.TrimSpace(line)
+		if expression == "" {
+			continue
+		}
+		if expression == ".exit" || expression == "exit" || expression == "quit" {
+			return
+		}
+		result, err := client.Evaluate(ctx, app, page, expression)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			continue
+		}
+		fmt.Println(convertToJSONString(result))
+	}
 }
 
 func parseWebInspectorTimeout(raw string) time.Duration {

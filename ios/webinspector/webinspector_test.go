@@ -52,3 +52,20 @@ func TestDecodeDispatchMessage(t *testing.T) {
 		t.Fatalf("expected id 7, got %d", id)
 	}
 }
+
+func TestParseEvaluateResult(t *testing.T) {
+	value, err := parseEvaluateResult(map[string]any{
+		"result": map[string]any{
+			"result": map[string]any{
+				"type":  "string",
+				"value": "hello",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("parse evaluate result: %v", err)
+	}
+	if value != "hello" {
+		t.Fatalf("expected hello, got %#v", value)
+	}
+}

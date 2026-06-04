@@ -33,6 +33,11 @@ const (
 	WIRTypeWebPage    WIRType = "WIRTypeWebPage"
 )
 
+const (
+	AutomationAvailable    = "WIRAutomationAvailabilityAvailable"
+	AutomationNotAvailable = "WIRAutomationAvailabilityNotAvailable"
+)
+
 type Application struct {
 	ID           string `json:"id"`
 	BundleID     string `json:"bundleId"`
@@ -172,6 +177,17 @@ func (c *Client) OpenApp(ctx context.Context, bundleID string) (Application, err
 	return app, err
 }
 
+func (c *Client) ApplicationByBundleID(bundleID string) (Application, bool) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	for _, app := range c.apps {
+		if app.BundleID == bundleID {
+			return app, true
+		}
+	}
+	return Application{}, false
+}
+
 func (c *Client) ListPages(ctx context.Context, wait time.Duration) ([]ApplicationPage, error) {
 	if err := c.GetConnectedApplications(ctx); err != nil {
 		return nil, err
@@ -228,6 +244,17 @@ func (c *Client) SetupInspectorSocket(sessionID string, app Application, page Pa
 	return c.sendMessage("_rpc_forwardSocketSetup:", message)
 }
 
+func (c *Client) RequestAutomationSession(sessionID string, app Application) error {
+	return c.sendMessage("_rpc_forwardAutomationSessionRequest:", map[string]any{
+		"WIRApplicationIdentifierKey": app.ID,
+		"WIRSessionCapabilitiesKey": map[string]any{
+			"org.webkit.webdriver.webrtc.allow-insecure-media-capture":     true,
+			"org.webkit.webdriver.webrtc.suppress-ice-candidate-filtering": false,
+		},
+		"WIRSessionIdentifierKey": sessionID,
+	})
+}
+
 func (c *Client) SendSocketData(sessionID string, app Application, page Page, data map[string]any) error {
 	encoded, err := json.Marshal(data)
 	if err != nil {
@@ -269,6 +296,33 @@ func (c *Client) SendCommand(ctx context.Context, sessionID string, app Applicat
 		}
 		return response, nil
 	}
+}
+
+func (c *Client) AutomationSession(ctx context.Context, app Application) (*AutomationSession, error) {
+	if c.State() == AutomationNotAvailable {
+		return nil, errors.New("remote automation is not enabled on the device")
+	}
+	sessionID := strings.ToUpper(uuid.New().String())
+	if err := c.RequestAutomationSession(sessionID, app); err != nil {
+		return nil, err
+	}
+	if err := c.forwardGetListing(app.ID); err != nil {
+		return nil, err
+	}
+	page, err := c.waitForAutomationPage(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.SetupInspectorSocket(sessionID, app, page, true); err != nil {
+		return nil, err
+	}
+	return &AutomationSession{
+		client:    c,
+		app:       app,
+		page:      page,
+		sessionID: sessionID,
+		nextID:    1,
+	}, nil
 }
 
 func (c *Client) Evaluate(ctx context.Context, app Application, page Page, expression string) (any, error) {
@@ -336,6 +390,24 @@ func (c *Client) NextEvent(ctx context.Context) (map[string]any, error) {
 	case event := <-c.events:
 		return event, nil
 	}
+}
+
+func (c *Client) waitForAutomationPage(ctx context.Context, sessionID string) (Page, error) {
+	var page Page
+	err := c.waitFor(ctx, func() bool {
+		c.stateMu.Lock()
+		defer c.stateMu.Unlock()
+		for _, appPages := range c.pages {
+			for _, candidate := range appPages {
+				if candidate.Type == WIRTypeAutomation && candidate.AutomationSessionID == sessionID {
+					page = candidate
+					return true
+				}
+			}
+		}
+		return false
+	})
+	return page, err
 }
 
 func (c *Client) readLoop() {

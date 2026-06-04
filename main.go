@@ -172,7 +172,9 @@ Usage:
   ios ui stream (mjpeg | h264) [--fps=<fps>] [--quality=<quality>] [--scale=<scale>] [--bitrate=<bitrate>] [--driver=<driver>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
   ios uninstall <bundleID> [options]
   ios webinspector list [--timeout=<seconds>] [options]
-  ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [options]
+  ios webinspector launch <url> [--bundle-id=<bundleID>] [--timeout=<seconds>] [options]
+  ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [--console-enable] [options]
+  ios webinspector js-shell [<url>] [--bundle-id=<bundleID>] [--open-safari] [--timeout=<seconds>] [--console-enable] [options]
   ios webinspector cdp [--host=<host>] [--port=<port>] [options]
   ios voiceover (enable | disable | toggle | get) [--force] [options]
   ios zoom (enable | disable | toggle | get) [--force] [options]
@@ -516,8 +518,14 @@ The commands work as following:
 
     ios webinspector list [--timeout=<seconds>] [options]           List inspectable Safari/WebView pages.
 
-    ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [options]
+    ios webinspector launch <url> [--bundle-id=<bundleID>] [--timeout=<seconds>] [options]
+                                                                    Launch Safari or another app and navigate by Remote Automation.
+
+    ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [--console-enable] [options]
                                                                     Evaluate JavaScript in an inspectable page.
+
+    ios webinspector js-shell [<url>] [--bundle-id=<bundleID>] [--open-safari] [--timeout=<seconds>] [--console-enable] [options]
+                                                                    Start an interactive JavaScript shell for an inspectable page.
 
     ios webinspector cdp [--host=<host>] [--port=<port>] [options]  Start a Chrome DevTools Protocol bridge.
 
