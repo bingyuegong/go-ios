@@ -2817,6 +2817,7 @@ type detailsEntry struct {
 	ProductName    string
 	ProductType    string
 	ProductVersion string
+	ConnectionType string
 }
 
 func outputDetailedList(deviceList ios.DeviceList) {
@@ -2825,7 +2826,13 @@ func outputDetailedList(deviceList ios.DeviceList) {
 		udid := device.Properties.SerialNumber
 		allValues, err := ios.GetValues(device)
 		exitIfError("failed getting values", err)
-		result[i] = detailsEntry{udid, allValues.Value.ProductName, allValues.Value.ProductType, allValues.Value.ProductVersion}
+		result[i] = detailsEntry{
+			Udid:           udid,
+			ProductName:    allValues.Value.ProductName,
+			ProductType:    allValues.Value.ProductType,
+			ProductVersion: allValues.Value.ProductVersion,
+			ConnectionType: device.ConnectionTypeLabel(),
+		}
 	}
 	fmt.Println(convertToJSONString(map[string][]detailsEntry{
 		"deviceList": result,
@@ -2837,7 +2844,7 @@ func outputDetailedListNoJSON(deviceList ios.DeviceList) {
 		udid := device.Properties.SerialNumber
 		allValues, err := ios.GetValues(device)
 		exitIfError("failed getting values", err)
-		fmt.Printf("%s  %s  %s %s\n", udid, allValues.Value.ProductName, allValues.Value.ProductType, allValues.Value.ProductVersion)
+		fmt.Printf("%s  %s  %s  %s  %s\n", udid, allValues.Value.ProductName, allValues.Value.ProductType, allValues.Value.ProductVersion, device.ConnectionTypeLabel())
 	}
 }
 

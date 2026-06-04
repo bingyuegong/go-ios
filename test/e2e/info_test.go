@@ -7,9 +7,12 @@ import (
 	"time"
 )
 
-// assertSnapshot, for a known (static) device, asserts every recorded identity
-// field in testdata/devices.json matches the live response. Unknown devices are
-// skipped so adding a device doesn't break CI.
+// assertSnapshot, for a known (static) device, asserts the recorded identity
+// fields in testdata/devices.json match the live response. The fixture is a
+// superset across commands (e.g. ConnectionType comes from `list`, not `info`),
+// so keys absent from this particular response are skipped — the keys a command
+// must return are enforced separately via smokeObj's requiredKeys. Unknown
+// devices are skipped so adding a device doesn't break CI.
 func assertSnapshot(t *testing.T, udid string, m map[string]any) {
 	t.Helper()
 	exp, ok := expectedDevice(udid)
@@ -17,7 +20,8 @@ func assertSnapshot(t *testing.T, udid string, m map[string]any) {
 		return
 	}
 	for key, want := range exp {
-		if got, _ := m[key].(string); got != want {
+		got, present := m[key].(string)
+		if present && got != want {
 			t.Fatalf("%s = %q, want %q (test/e2e/testdata/devices.json)", key, got, want)
 		}
 	}
