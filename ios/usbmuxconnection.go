@@ -32,19 +32,20 @@ func ToUnixSocketPath(socketAddress string) string {
 func GetUsbmuxdSocket() string {
 	socket_override := os.Getenv("USBMUXD_SOCKET_ADDRESS")
 	if socket_override != "" {
-		// if it has a scheme, just use it
-		if strings.Contains(socket_override, "://") {
-			return socket_override
+		// An explicit scheme (e.g. unix:///var/run/usbmuxd or tcp://127.0.0.1:27015)
+		// is honored as-is. The scheme is lower-cased because it is passed straight
+		// to net.Dial, which rejects e.g. "UNIX" — this is what lets
+		// USBMUXD_SOCKET_ADDRESS=UNIX:///tmp/usbmuxd work.
+		if i := strings.Index(socket_override, "://"); i >= 0 {
+			return strings.ToLower(socket_override[:i]) + socket_override[i:]
 		}
-		// if it is a file, use it as unix socket
-		if _, err := os.Stat(socket_override); err == nil {
-			return "unix://" + socket_override
-		}
-		// if it is a tcp address, use it
-		if strings.Contains(socket_override, ":") && strings.Contains(socket_override, ".") {
+		// No scheme: fall back to the original heuristic for backward compatibility
+		// — a ":" means host:port (tcp, incl. hostname:port), anything else is a
+		// unix socket path.
+		if strings.Contains(socket_override, ":") {
 			return "tcp://" + socket_override
 		}
-		panic("Unknown socket address: " + socket_override)
+		return "unix://" + socket_override
 	}
 	switch runtime.GOOS {
 	case "windows":
