@@ -13,15 +13,17 @@ import (
 
 	"github.com/danielpaulus/go-ios/ios"
 	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/danielpaulus/go-ios/ios/notificationproxy"
 	"github.com/google/uuid"
 )
 
 const logModule = "go-ios/webinspector"
 
 const (
-	ServiceName    = "com.apple.webinspector"
-	ShimService    = "com.apple.webinspector.shim.remote"
-	SafariBundleID = "com.apple.mobilesafari"
+	ServiceName          = "com.apple.webinspector"
+	ShimService          = "com.apple.webinspector.shim.remote"
+	SafariBundleID       = "com.apple.mobilesafari"
+	DisabledNotification = "com.apple.webinspectord.disabled"
 )
 
 type WIRType string
@@ -84,8 +86,9 @@ type Client struct {
 	results  map[int]chan map[string]any
 	events   chan map[string]any
 
-	done chan struct{}
-	errs chan error
+	done     chan struct{}
+	errs     chan error
+	disabled chan error
 }
 
 func New(device ios.DeviceEntry) (*Client, error) {
@@ -116,10 +119,12 @@ func NewWithConnection(device ios.DeviceEntry, conn ios.DeviceConnectionInterfac
 		events:       make(chan map[string]any, 256),
 		done:         make(chan struct{}),
 		errs:         make(chan error, 1),
+		disabled:     make(chan error, 1),
 	}
 }
 
 func (c *Client) Connect(ctx context.Context) error {
+	c.watchDisabledNotification()
 	if err := c.sendMessage("_rpc_reportIdentifier:", nil); err != nil {
 		return err
 	}
@@ -387,6 +392,8 @@ func (c *Client) NextEvent(ctx context.Context) (map[string]any, error) {
 		return nil, ctx.Err()
 	case err := <-c.errs:
 		return nil, err
+	case err := <-c.disabled:
+		return nil, err
 	case event := <-c.events:
 		return event, nil
 	}
@@ -563,9 +570,28 @@ func (c *Client) waitFor(ctx context.Context, predicate func() bool) error {
 			return ctx.Err()
 		case err := <-c.errs:
 			return err
+		case err := <-c.disabled:
+			return err
 		case <-ticker.C:
 		}
 	}
+}
+
+func (c *Client) watchDisabledNotification() {
+	go func() {
+		conn, err := notificationproxy.New(c.device)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		err = conn.Observe(DisabledNotification, 10*time.Second)
+		if err == nil {
+			select {
+			case c.disabled <- errors.New("web inspector is not enabled on the device"):
+			default:
+			}
+		}
+	}()
 }
 
 func parseApplication(raw any) (Application, error) {
