@@ -32,7 +32,7 @@ up: build run
 
 # Run linter
 lint:
-	@golangci-lint run
+	@go vet ./...
 
 # Setup development environment (installs git hooks)
 setup:

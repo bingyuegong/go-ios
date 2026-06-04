@@ -38,7 +38,7 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0 # need all tags to find the latest
@@ -63,10 +63,10 @@ jobs:
     runs-on: windows-latest
     needs: prepare_version
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -79,7 +79,7 @@ jobs:
           Compress-Archive -Path .\bin\ios.exe -CompressionLevel Optimal -DestinationPath go-ios-windows.zip
 
       - name: upload the windows build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-build
           path: go-ios-windows.zip
@@ -90,10 +90,10 @@ jobs:
     runs-on: macos-latest
     needs: [prepare_version, build_on_windows]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -109,7 +109,7 @@ jobs:
           zip -j go-ios-mac.zip bin/ios
 
       - name: upload the macos build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-build
           path: go-ios-mac.zip
@@ -125,26 +125,26 @@ jobs:
     env:
       VERSION: ${{ needs.prepare_version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }} # admin token, can push to protected main
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Download mac build from previous job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-build
           path: ./mac-bin
 
       - name: Download windows build from previous job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-build
           path: ./win-bin
@@ -203,7 +203,7 @@ jobs:
 
       # OIDC trusted publishing needs Node >= 22.14.0 and npm >= 11.5.1.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -242,7 +242,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'

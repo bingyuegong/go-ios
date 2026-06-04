@@ -14,10 +14,10 @@ jobs:
   build_on_windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -30,7 +30,7 @@ jobs:
           Compress-Archive -Path .\bin\ios.exe -CompressionLevel Optimal -DestinationPath go-ios-windows.zip
 
       - name: upload the windows build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-build
           path: go-ios-windows.zip
@@ -41,10 +41,10 @@ jobs:
     runs-on: macos-latest
     needs: build_on_windows
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -60,7 +60,7 @@ jobs:
           zip -j go-ios-mac.zip bin/ios
 
       - name: upload the macos build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-build
           path: go-ios-mac.zip
@@ -75,16 +75,16 @@ jobs:
       # publishing. No contents: write here — canary does not cut a GitHub release.
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Download mac build from previous job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-build
           path: ./mac-bin
@@ -95,7 +95,7 @@ jobs:
           unzip go-ios-mac.zip
 
       - name: Download windows build from previous job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-build
           path: ./win-bin
@@ -114,7 +114,7 @@ jobs:
 
       # OIDC trusted publishing needs Node >= 22.14.0 and npm >= 11.5.1.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -156,7 +156,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'

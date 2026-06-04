@@ -185,7 +185,7 @@ func (d *DebugProxy) setupDirectory() {
 	os.MkdirAll(newpath, os.ModePerm)
 }
 
-func (d DebugProxy) addConnectionInfoToJsonFile(connInfo ConnectionInfo) {
+func (d *DebugProxy) addConnectionInfoToJsonFile(connInfo ConnectionInfo) {
 	file, err := os.OpenFile(filepath.Join(d.WorkingDir, connectionJSONFileName),
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -200,13 +200,13 @@ func (d DebugProxy) addConnectionInfoToJsonFile(connInfo ConnectionInfo) {
 	file.Close()
 }
 
-func (p ProxyConnection) logJSONMessageFromDevice(msg map[string]interface{}) {
+func (p *ProxyConnection) logJSONMessageFromDevice(msg map[string]interface{}) {
 	const outPath = "jsondump.json"
 	msg["direction"] = "device->host"
 	writeJSON(filepath.Join(p.info.ConnectionPath, outPath), msg)
 }
 
-func (p ProxyConnection) logJSONMessageToDevice(msg map[string]interface{}) {
+func (p *ProxyConnection) logJSONMessageToDevice(msg map[string]interface{}) {
 	const outPath = "jsondump.json"
 	msg["direction"] = "host->device"
 	writeJSON(filepath.Join(p.info.ConnectionPath, outPath), msg)

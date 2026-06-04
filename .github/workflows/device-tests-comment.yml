@@ -26,7 +26,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Acknowledge the command
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.reactions.createForIssueComment({
@@ -59,7 +59,7 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v9
         with:
           script: |
             const ok = '${{ needs.real-device.result }}' === 'success';
