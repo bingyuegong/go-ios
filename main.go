@@ -26,12 +26,10 @@ import (
 
 	"github.com/danielpaulus/go-ios/internal/clihelp"
 	"github.com/danielpaulus/go-ios/ios/debugproxy"
-	"github.com/danielpaulus/go-ios/ios/deviceinfo"
 	"github.com/danielpaulus/go-ios/ios/house_arrest"
 	"github.com/danielpaulus/go-ios/ios/tunnel"
 
 	"github.com/danielpaulus/go-ios/ios/amfi"
-	"github.com/danielpaulus/go-ios/ios/mobileactivation"
 
 	"github.com/danielpaulus/go-ios/ios/afc"
 	"github.com/danielpaulus/go-ios/ios/fileservice"
@@ -54,7 +52,6 @@ import (
 	"github.com/danielpaulus/go-ios/ios/mcinstall"
 	"github.com/danielpaulus/go-ios/ios/notificationproxy"
 	"github.com/danielpaulus/go-ios/ios/ostrace"
-	"github.com/danielpaulus/go-ios/ios/pcap"
 	"github.com/danielpaulus/go-ios/ios/springboard"
 	syslog "github.com/danielpaulus/go-ios/ios/syslog"
 	"github.com/docopt/docopt-go"
@@ -622,6 +619,10 @@ The commands work as following:
 		}
 	}
 
+	if dispatchCommand(commandContext{Args: arguments, Device: device}, deviceCommands) {
+		return
+	}
+
 	b, _ = arguments.Bool("erase")
 	if b {
 		force, _ := arguments.Bool("--force")
@@ -802,20 +803,6 @@ The commands work as following:
 		return
 	}
 
-	b, _ = arguments.Bool("activate")
-	if b {
-		exitIfError("failed activation", mobileactivation.Activate(device))
-		return
-	}
-
-	b, _ = arguments.Bool("ip")
-	if b {
-		ip, err := pcap.FindIp(device)
-		exitIfError("failed", err)
-		fmt.Println(convertToJSONString(ip))
-		return
-	}
-
 	if crashCommand(device, arguments) {
 		return
 	}
@@ -823,50 +810,7 @@ The commands work as following:
 		return
 	}
 
-	b, _ = arguments.Bool("pcap")
-	if b {
-		p, _ := arguments.String("--process")
-		i, _ := arguments.Int("--pid")
-		pcap.Pid = int32(i)
-		pcap.ProcName = p
-		err := pcap.Start(device)
-		if err != nil {
-			exitIfError("pcap failed", err)
-		}
-		return
-	}
-
-	b, _ = arguments.Bool("ps")
-	if b {
-		applicationsOnly, _ := arguments.Bool("--apps")
-		processList(device, applicationsOnly)
-		return
-	}
-
-	b, _ = arguments.Bool("install")
-	if b {
-		path, _ := arguments.String("--path")
-		installApp(device, path)
-		return
-	}
-
-	b, _ = arguments.Bool("uninstall")
-	if b {
-		bundleID, _ := arguments.String("<bundleID>")
-		uninstallApp(device, bundleID)
-		return
-	}
-
 	if imageCommand1(device, arguments) {
-		return
-	}
-
-	b, _ = arguments.Bool("lang")
-	if b {
-		locale, _ := arguments.String("--setlocale")
-		newlang, _ := arguments.String("--setlang")
-		slog.Debug("lang", "setlocale", locale, "setlang", newlang)
-		language(device, locale, newlang)
 		return
 	}
 
@@ -933,37 +877,6 @@ The commands work as following:
 		}
 	}
 
-	b, _ = arguments.Bool("dproxy")
-	if b {
-		// NOTE: previously this forced a logrus TextFormatter for the dproxy
-		// path. Log formatting is now decided centrally from --nojson during
-		// logger setup, so this per-path override is dropped.
-		binaryMode, _ := arguments.Bool("--binary")
-		startDebugProxy(device, binaryMode)
-		return
-	}
-
-	b, _ = arguments.Bool("info")
-	if b {
-		if display, _ := arguments.Bool("display"); display {
-			deviceInfo, err := deviceinfo.NewDeviceInfo(device)
-			exitIfError("Can't connect to deviceinfo service", err)
-			defer deviceInfo.Close()
-
-			info, err := deviceInfo.GetDisplayInfo()
-			exitIfError("Can't fetch dispaly info", err)
-
-			fmt.Println(convertToJSONString(info))
-		} else if lockdown, _ := arguments.Bool("lockdown"); lockdown {
-			printDeviceInfo(device)
-		} else {
-			// When subcommand is missing, it defaults to lockdown.
-			// Unknown subcommands don't reach this line and quit early.
-			printDeviceInfo(device)
-		}
-		return
-	}
-
 	lockdownCommand, _ := arguments.Bool("lockdown")
 	if lockdownCommand {
 		b, _ = arguments.Bool("get")
@@ -1000,58 +913,6 @@ The commands work as following:
 		}
 	}
 
-	b, _ = arguments.Bool("syslog")
-	if b {
-		parse, _ := arguments.Bool("--parse")
-
-		runSyslog(device, parse)
-		return
-	}
-
-	b, _ = arguments.Bool("ostrace")
-	if b {
-		pidStr, _ := arguments.String("--pid")
-		processName, _ := arguments.String("--process")
-		levelStr, _ := arguments.String("--level")
-		subsystem, _ := arguments.String("--subsystem")
-		match, _ := arguments.String("--match")
-		exclude, _ := arguments.String("--exclude")
-		pid := -1
-		if pidStr != "" {
-			var err error
-			pid, err = strconv.Atoi(pidStr)
-			exitIfError("invalid --pid value", err)
-		}
-		levelFilter, err := ostrace.ParseLevelFilter(levelStr)
-		exitIfError("invalid --level value", err)
-		clientFilter := ostrace.ClientFilter{
-			Levels:    levelFilter.ClientLevels,
-			Subsystem: subsystem,
-			Match:     match,
-			Exclude:   exclude,
-		}
-		follow, _ := arguments.Bool("--follow")
-		runOsTrace(device, pid, processName, levelFilter.MessageFilter, levelFilter.StreamFlags, clientFilter, follow)
-		return
-	}
-
-	b, _ = arguments.Bool("screenshot")
-	if b {
-		stream, _ := arguments.Bool("--stream")
-		port, _ := arguments.String("--port")
-		path, _ := arguments.String("--output")
-		if stream {
-			if port == "" {
-				port = "3333"
-			}
-			err := instruments.StartMJPEGStreamingServer(device, port)
-			exitIfError("failed starting mjpeg", err)
-			return
-		}
-		saveScreenshot(device, path)
-		return
-	}
-
 	b, _ = arguments.Bool("setlocation")
 	if b {
 		lat, _ := arguments.String("--lat")
@@ -1076,40 +937,6 @@ The commands work as following:
 		return
 	}
 
-	b, _ = arguments.Bool("resetlocation")
-	if b {
-		resetLocation(device)
-		return
-	}
-
-	b, _ = arguments.Bool("devicename")
-	if b {
-		printDeviceName(device)
-		return
-	}
-
-	b, _ = arguments.Bool("apps")
-
-	if b {
-		list, _ := arguments.Bool("--list")
-		system, _ := arguments.Bool("--system")
-		all, _ := arguments.Bool("--all")
-		filesharing, _ := arguments.Bool("--filesharing")
-		printInstalledApps(device, system, all, list, filesharing)
-		return
-	}
-
-	b, _ = arguments.Bool("date")
-	if b {
-		printDeviceDate(device)
-		return
-	}
-	b, _ = arguments.Bool("diagnostics")
-	if b {
-		printDiagnostics(device)
-		return
-	}
-
 	b, _ = arguments.Bool("timeformat")
 	if b {
 		force, _ := arguments.Bool("--force")
@@ -1129,23 +956,6 @@ The commands work as following:
 		if b {
 			timeFormat(device, "get", force)
 		}
-	}
-
-	b, _ = arguments.Bool("pair")
-	if b {
-		org, _ := arguments.String("--p12file")
-		pwd, _ := arguments.String("--password")
-		if pwd == "" {
-			pwd = os.Getenv("P12_PASSWORD")
-		}
-		pairDevice(device, org, pwd)
-		return
-	}
-
-	b, _ = arguments.Bool("readpair")
-	if b {
-		readPair(device)
-		return
 	}
 
 	b, _ = arguments.Bool("httpproxy")
@@ -1456,33 +1266,6 @@ The commands work as following:
 		exitIfError("debug server failed", debugserver.Start(device, appPath, stopAtEntry))
 	}
 
-	b, _ = arguments.Bool("batteryregistry")
-	if b {
-		printBatteryRegistry(device)
-	}
-
-	b, _ = arguments.Bool("reboot")
-	if b {
-		err := diagnostics.Reboot(device)
-		if err != nil {
-			slog.Error("reboot failed", "error", err)
-		} else {
-			slog.Info("ok")
-		}
-		return
-	}
-
-	b, _ = arguments.Bool("shutdown")
-	if b {
-		err := diagnostics.Shutdown(device)
-		if err != nil {
-			slog.Error("shutdown failed", "error", err)
-		} else {
-			slog.Info("ok")
-		}
-		return
-	}
-
 	b, _ = arguments.Bool("file")
 	if b {
 		// file command uses RemoteXPC (iOS 17+) and requires tunnel
@@ -1729,30 +1512,6 @@ The commands work as following:
 			exitIfError("fsync: push failed", err)
 		}
 		afcService.Close()
-		return
-	}
-
-	b, _ = arguments.Bool("diskspace")
-	if b {
-		afcService, err := afc.New(device)
-		exitIfError("connect afc service failed", err)
-		info, err := afcService.DeviceInfo()
-		exitIfError("get device info push failed", err)
-		if JSONdisabled {
-			fmt.Printf("      Model: %s\n", info.Model)
-			fmt.Printf("  BlockSize: %d\n", info.BlockSize)
-			fmt.Printf("  FreeSpace: %s\n", ios.ByteCountDecimal(int64(info.FreeBytes)))
-			fmt.Printf("  UsedSpace: %s\n", ios.ByteCountDecimal(int64(info.TotalBytes-info.FreeBytes)))
-			fmt.Printf(" TotalSpace: %s\n", ios.ByteCountDecimal(int64(info.TotalBytes)))
-		} else {
-			fmt.Println(convertToJSONString(info))
-		}
-		return
-	}
-
-	b, _ = arguments.Bool("batterycheck")
-	if b {
-		printBatteryDiagnostics(device)
 		return
 	}
 
