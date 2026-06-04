@@ -3,17 +3,25 @@ package nskeyedarchiver
 import (
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
+	"github.com/Masterminds/semver"
 	"github.com/google/uuid"
 	"howett.net/plist"
+)
+
+const (
+	attachmentLifetimeKeepAlways      = 0
+	attachmentLifetimeDeleteOnSuccess = 1
+	attachmentLifetimeDeleteAlways    = 2
 )
 
 var (
 	decodableClasses map[string]func(map[string]interface{}, []interface{}) interface{}
 	encodableClasses map[string]func(object interface{}, objects []interface{}) ([]interface{}, plist.UID)
 )
+
+var testIdentifierRegex = regexp.MustCompile(`((?P<module>[^\.]+)\.)?(?P<class>[^\/]+)(\/(?P<method>[^\.]+))?`)
 
 func SetupDecoders() {
 	if decodableClasses == nil {
@@ -37,8 +45,10 @@ func SetupDecoders() {
 			"DTTapMessage":              NewDTTapMessage,
 			"DTCPUClusterInfo":          NewDTCPUClusterInfo,
 			"XCTIssue":                  NewXCTIssue,
+			"XCTMutableIssue":           NewXCTIssue,
 			"XCTSourceCodeContext":      NewXCTSourceCodeContext,
 			"XCTSourceCodeLocation":     NewXCTSourceCodeLocation,
+			"NSMutableData":             NewNSMutableData,
 		}
 	}
 }
@@ -74,6 +84,8 @@ func NewXCTestConfiguration(
 	testBundleURL string,
 	testsToRun []string,
 	testsToSkip []string,
+	isXCTest bool,
+	version *semver.Version,
 ) XCTestConfiguration {
 	contents := map[string]interface{}{}
 
@@ -101,8 +113,19 @@ func NewXCTestConfiguration(
 		testIdentifiersToSkipEntry = createTestIdentifierSet(productModuleName, testsToSkip)
 	}
 
+	var appUnderTestExists = targetApplicationPath != "" && targetApplicationBundleID != ""
+	if appUnderTestExists {
+		contents["productModuleName"] = productModuleName
+		contents["targetApplicationBundleID"] = targetApplicationBundleID
+		contents["targetApplicationPath"] = targetApplicationPath
+	}
+
 	contents["aggregateStatisticsBeforeCrash"] = map[string]interface{}{"XCSuiteRecordsKey": map[string]interface{}{}}
-	contents["automationFrameworkPath"] = "/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework"
+	if version.Major() >= 17 {
+		contents["automationFrameworkPath"] = "/System/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework"
+	} else {
+		contents["automationFrameworkPath"] = "/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework"
+	}
 	contents["baselineFileRelativePath"] = plist.UID(0)
 	contents["baselineFileURL"] = plist.UID(0)
 	contents["defaultTestExecutionTimeAllowance"] = plist.UID(0)
@@ -110,18 +133,13 @@ func NewXCTestConfiguration(
 	contents["emitOSLogs"] = false
 	// contents["formatVersion"] = 2
 	contents["gatherLocalizableStringsData"] = false
-	contents["initializeForUITesting"] = true
+	contents["initializeForUITesting"] = !isXCTest
 	contents["maximumTestExecutionTimeAllowance"] = plist.UID(0)
-	contents["productModuleName"] = productModuleName
 	contents["randomExecutionOrderingSeed"] = plist.UID(0)
 	contents["reportActivities"] = true
 	contents["reportResultsToIDE"] = true
 	contents["sessionIdentifier"] = NewNSUUID(sessionIdentifier)
-	contents["systemAttachmentLifetime"] = 0
-	// contents["targetApplicationArguments"] = []interface{}{} //TODO: triggers a bug
-	contents["targetApplicationBundleID"] = targetApplicationBundleID
-	// contents["targetApplicationEnvironment"] = //TODO: triggers a bug map[string]interface{}{}
-	contents["targetApplicationPath"] = targetApplicationPath
+	contents["systemAttachmentLifetime"] = attachmentLifetimeDeleteAlways
 	// testApplicationDependencies
 	contents["testApplicationUserOverrides"] = plist.UID(0)
 	contents["testBundleRelativePath"] = plist.UID(0)
@@ -131,7 +149,7 @@ func NewXCTestConfiguration(
 	contents["testsMustRunOnMainThread"] = true
 	contents["testTimeoutsEnabled"] = false
 	contents["treatMissingBaselinesAsFailures"] = false
-	contents["userAttachmentLifetime"] = 0
+	contents["userAttachmentLifetime"] = attachmentLifetimeKeepAlways
 	contents["preferredScreenCaptureFormat"] = 2
 	contents["IDECapabilities"] = XCTCapabilities{CapabilitiesDictionary: map[string]interface{}{
 		"expected failure test capability":         true,
@@ -162,37 +180,35 @@ func NewXCTestConfiguration(
 func createTestIdentifierSet(productModuleName string, tests []string) XCTTestIdentifierSet {
 	testsIdentifiersConfig := make([]XCTTestIdentifier, 0, len(tests))
 	for _, t := range tests {
-		re := regexp.MustCompile("[./]")
-		splitTest := re.Split(t, -1)
-
-		if len(splitTest) > 1 {
-			classIndex := 0
-			if len(splitTest) > 2 {
-				classIndex = len(splitTest) - 2
+		match := testIdentifierRegex.FindStringSubmatch(t)
+		matchedGroups := make(map[string]string)
+		for i, name := range testIdentifierRegex.SubexpNames() {
+			if i != 0 && name != "" {
+				matchedGroups[name] = match[i]
 			}
-
-			testClass := strings.Join(splitTest[0:classIndex+1], ".")
-			testName := splitTest[classIndex+1]
-			C := make([]string, 0, 2)
-			C = append(C, testClass)
-			C = append(C, testName)
-
-			identifier := XCTTestIdentifier{
-				C: C,
-				O: 6,
-			}
-			testsIdentifiersConfig = append(testsIdentifiersConfig, identifier)
-		} else {
-			testClass := splitTest[0]
-			C := make([]string, 0, 1)
-			C = append(C, testClass)
-
-			identifier := XCTTestIdentifier{
-				C: C,
-				O: 3,
-			}
-			testsIdentifiersConfig = append(testsIdentifiersConfig, identifier)
 		}
+
+		components := make([]string, 0, 2)
+
+		// the `module` parameter is ingored here as it only works reliably with `testIdentifiersToRun`
+		// adding the `module` parameter to `testIdentifiersToSkip` won't skip the specified tests there
+		// this was verified with Xcode 15
+		_ = matchedGroups["module"]
+		clazz := matchedGroups["class"]
+		method := matchedGroups["method"]
+
+		options := uint64(3)
+		components = append(components, clazz)
+		if len(method) > 0 {
+			options = 2
+			components = append(components, method)
+		}
+
+		testsIdentifiersConfig = append(testsIdentifiersConfig, XCTTestIdentifier{
+			O: options,
+			C: components,
+		})
+
 	}
 
 	testArray := NSMutableArray{
@@ -310,10 +326,12 @@ func NewXCTAttachment(object map[string]interface{}, objects []interface{}) inte
 	lifetime := object["lifetime"].(uint64)
 	uniformTypeIdentifier := objects[object["uniformTypeIdentifier"].(plist.UID)].(string)
 	fileNameOverride := objects[object["fileNameOverride"].(plist.UID)].(string)
-	payload := objects[object["payload"].(plist.UID)].([]uint8)
 	timestamp := objects[object["timestamp"].(plist.UID)].(float64)
 	name := objects[object["name"].(plist.UID)].(string)
 	userInfo, _ := extractDictionary(objects[object["userInfo"].(plist.UID)].(map[string]interface{}), objects)
+
+	payloadRaw := objects[object["payload"].(plist.UID)]
+	payload := extractAttachmentPayload(payloadRaw, objects)
 
 	return XCTAttachment{
 		lifetime:              lifetime,
@@ -324,6 +342,26 @@ func NewXCTAttachment(object map[string]interface{}, objects []interface{}) inte
 		Name:                  name,
 		userInfo:              userInfo,
 	}
+}
+
+func extractAttachmentPayload(payloadRaw interface{}, objects []interface{}) []uint8 {
+	payload, byteSliceOk := payloadRaw.([]uint8)
+	if !byteSliceOk {
+		mapPayload, mapOk := payloadRaw.(map[string]interface{})
+		if mapOk {
+			payloadClassMap, classOk := objects[mapPayload["$class"].(plist.UID)].(map[string]interface{})
+			if classOk {
+				payloadClass := payloadClassMap["$classname"]
+				if payloadClass == "NSMutableData" || payloadClass == "NSData" {
+					payload = NewNSMutableData(mapPayload, objects).([]uint8)
+				}
+			}
+		} else {
+			payload = make([]uint8, 0)
+		}
+	}
+
+	return payload
 }
 
 func NewNSUUIDFromBytes(object map[string]interface{}, objects []interface{}) interface{} {
@@ -548,7 +586,11 @@ func NewNSError(object map[string]interface{}, objects []interface{}) interface{
 }
 
 func (err NSError) Error() string {
-	return fmt.Sprintf("Error code: %d, Domain: %s, User info: %v", err.ErrorCode, err.Domain, err.UserInfo)
+	var description any = "no description available"
+	if d, ok := err.UserInfo["NSLocalizedDescription"]; ok {
+		description = d
+	}
+	return fmt.Sprintf("%v (Error code: %d, Domain: %s)", description, err.ErrorCode, err.Domain)
 }
 
 // Apples Reference Date is Jan 1st 2001 00:00
@@ -694,6 +736,15 @@ func NewXCTIssue(object map[string]interface{}, objects []interface{}) interface
 	sourceCodeContext := NewXCTSourceCodeContext(objects[sourceCodeContextRef].(map[string]interface{}), objects).(XCTSourceCodeContext)
 
 	return XCTIssue{RuntimeIssueSeverity: runtimeIssueSeverity, DetailedDescription: detailedDescription, CompactDescription: compactDescription, SourceCodeContext: sourceCodeContext}
+}
+
+func NewNSMutableData(object map[string]interface{}, objects []interface{}) interface{} {
+	data, ok := object["NS.data"].([]uint8)
+	if ok {
+		return data
+	}
+
+	return make([]uint8, 0)
 }
 
 type XCTSourceCodeContext struct {

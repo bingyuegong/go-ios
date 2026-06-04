@@ -2,13 +2,13 @@ package ios_test
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
 
 	ios "github.com/danielpaulus/go-ios/ios"
+	"github.com/danielpaulus/go-ios/ios/golog"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,13 +26,13 @@ func TestPlistCodec(t *testing.T) {
 		actual, err := codec.Encode(tc.data)
 		if assert.NoError(t, err) {
 			if *update {
-				err := ioutil.WriteFile(golden, []byte(actual), 0o644)
+				err := os.WriteFile(golden, []byte(actual), 0o644)
 				if err != nil {
-					log.Error(err)
+					golog.Error("failed writing golden file", "module", "go-ios", "error", err)
 					t.Fail()
 				}
 			}
-			expected, _ := ioutil.ReadFile(golden)
+			expected, _ := os.ReadFile(golden)
 			assert.Equal(t, expected, actual)
 
 			// simple test to check that decode(encode(x))==x

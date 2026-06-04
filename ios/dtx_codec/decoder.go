@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	log "github.com/sirupsen/logrus"
-
+	"github.com/danielpaulus/go-ios/ios/golog"
 	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
 )
 
@@ -24,7 +23,6 @@ func ReadMessage(reader io.Reader) (Message, error) {
 	result := readHeader(header)
 
 	if result.IsFragment() {
-
 		// the first part of a fragmented message is only a header indicating the total length of
 		// the defragmented message
 		if result.IsFirstFragment() {
@@ -145,7 +143,7 @@ func DecodeNonBlocking(messageBytes []byte) (Message, []byte, error) {
 			return Message{}, make([]byte, 0), err
 		}
 		result.AuxiliaryHeader = header
-		if len(messageBytes) < 48+result.PayloadHeader.AuxiliaryLength {
+		if len(messageBytes) < int(48+result.PayloadHeader.AuxiliaryLength) {
 			return Message{}, make([]byte, 0), NewIncomplete("Aux Payload missing")
 		}
 		auxBytes := messageBytes[64 : 48+result.PayloadHeader.AuxiliaryLength]
@@ -195,16 +193,16 @@ func parseAuxiliaryHeader(headerBytes []byte) (AuxiliaryHeader, error) {
 
 func parsePayloadHeader(messageBytes []byte) (PayloadHeader, error) {
 	result := PayloadHeader{}
-	result.MessageType = int(binary.LittleEndian.Uint32(messageBytes))
-	result.AuxiliaryLength = int(binary.LittleEndian.Uint32(messageBytes[4:]))
-	result.TotalPayloadLength = int(binary.LittleEndian.Uint32(messageBytes[8:]))
-	result.Flags = int(binary.LittleEndian.Uint32(messageBytes[12:]))
+	result.MessageType = MessageType(binary.LittleEndian.Uint32(messageBytes))
+	result.AuxiliaryLength = binary.LittleEndian.Uint32(messageBytes[4:])
+	result.TotalPayloadLength = binary.LittleEndian.Uint32(messageBytes[8:])
+	result.Flags = binary.LittleEndian.Uint32(messageBytes[12:])
 
 	return result, nil
 }
 
 func (d Message) parsePayloadBytes(messageBytes []byte) ([]interface{}, error) {
-	offset := 0
+	offset := uint32(0)
 	if d.HasAuxiliary() && d.HasPayload() {
 		offset = 48 + d.PayloadHeader.AuxiliaryLength
 	}
@@ -217,9 +215,9 @@ func (d Message) parsePayloadBytes(messageBytes []byte) ([]interface{}, error) {
 	if d.PayloadHeader.MessageType == LZ4CompressedMessage {
 		uncompressed, err := Decompress(messageBytes[offset:])
 		if err == nil {
-			log.Infof("lz4 compressed %d bytes/ %d uncompressed ", len(messageBytes[offset:]), len(uncompressed))
+			golog.Info("lz4 decompressed message", "module", logModule, "compressed", len(messageBytes[offset:]), "uncompressed", len(uncompressed))
 		} else {
-			log.Infof("skipping lz4 compressed msg with %d bytes, decompression error %v", len(messageBytes[offset:]), err)
+			golog.Info("skipping lz4 compressed msg", "module", logModule, "bytes", len(messageBytes[offset:]), "error", err)
 		}
 		return []interface{}{messageBytes[offset:]}, nil
 	}
@@ -227,7 +225,7 @@ func (d Message) parsePayloadBytes(messageBytes []byte) ([]interface{}, error) {
 }
 
 // PayloadLength equals PayloadHeader.TotalPayloadLength - d.PayloadHeader.AuxiliaryLength so it is the Payload without the Auxiliary
-func (d Message) PayloadLength() int {
+func (d Message) PayloadLength() uint32 {
 	return d.PayloadHeader.TotalPayloadLength - d.PayloadHeader.AuxiliaryLength
 }
 

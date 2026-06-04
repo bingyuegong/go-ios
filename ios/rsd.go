@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"strconv"
 
+	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/danielpaulus/go-ios/ios/http"
 	"github.com/danielpaulus/go-ios/ios/xpc"
-	log "github.com/sirupsen/logrus"
 )
 
 // RsdPortProvider is an interface to get a port for a service, or a service for a port from the Remote Service Discovery on the device.
@@ -15,6 +17,7 @@ import (
 type RsdPortProvider interface {
 	GetPort(service string) int
 	GetService(p int) string
+	GetServices() map[string]RsdServiceEntry
 }
 
 type RsdPortProviderJson map[string]service
@@ -42,7 +45,7 @@ func (r RsdPortProviderJson) GetPort(service string) int {
 	if p == "" {
 		shim := fmt.Sprintf("%s.shim.remote", service)
 		if r[shim].Port != "" {
-			log.Debugf("returning port of '%s'-shim", service)
+			golog.Debug("returning port of shim", "module", logModule, "service", service)
 			return r.GetPort(shim)
 		}
 	}
@@ -57,7 +60,7 @@ func (r RsdPortProviderJson) GetService(p int) string {
 	for name, s := range r {
 		port, err := strconv.ParseInt(s.Port, 10, 64)
 		if err != nil {
-			log.Errorf("GetService: failed to parse port: %v", err)
+			golog.Error("GetService: failed to parse port", "module", logModule, "service", name, "error", err)
 			return ""
 		}
 		if port == int64(p) {
@@ -65,6 +68,21 @@ func (r RsdPortProviderJson) GetService(p int) string {
 		}
 	}
 	return ""
+}
+
+func (r RsdPortProviderJson) GetServices() (services map[string]RsdServiceEntry) {
+	services = make(map[string]RsdServiceEntry, len(r))
+	for name, s := range r {
+		port, err := strconv.ParseInt(s.Port, 10, 64)
+		if err != nil {
+			golog.Error("GetService: failed to parse port", "module", logModule, "service", name, "error", err)
+			continue
+		}
+
+		services[name] = RsdServiceEntry{Port: uint32(port)}
+	}
+
+	return
 }
 
 // RsdCheckin sends a plist encoded message with the request 'RSDCheckin' to the device.
@@ -138,21 +156,43 @@ func (r RsdHandshakeResponse) GetPort(service string) int {
 	return 0
 }
 
-// NewWithAddr creates a new RsdService with the given address and port 58783 using a HTTP2 based XPC connection.
-func NewWithAddr(addr string) (RsdService, error) {
-	return NewWithAddrPort(addr, port)
+func (r RsdHandshakeResponse) GetServices() map[string]RsdServiceEntry {
+	return r.Services
 }
 
-// NewWithAddrPort creates a new RsdService with the given address and port using a HTTP2 based XPC connection.
+// NewWithAddrPort creates a new RsdService with the given address and port 58783 using a HTTP2 based XPC connection,
+// connecting to an operating system level TUN device.
 func NewWithAddrPort(addr string, port int) (RsdService, error) {
-	h, err := ConnectToHttp2WithAddr(addr, port)
+	conn, err := connectTUN(addr, port)
 	if err != nil {
-		return RsdService{}, fmt.Errorf("NewWithAddrPort: failed to connect to http2: %w", err)
+		return RsdService{}, fmt.Errorf("NewWithAddrPort: failed to connect to device: %w", err)
+	}
+	return newRsdServiceFromTcpConn(conn)
+}
+
+// NewWithAddrDevice creates a new RsdService with the given address and port 58783 using a HTTP2 based XPC connection.
+func NewWithAddrDevice(addr string, d DeviceEntry) (RsdService, error) {
+	return NewWithAddrPortDevice(addr, port, d)
+}
+
+// NewWithAddrPortDevice creates a new RsdService with the given address and port using a HTTP2 based XPC connection.
+func NewWithAddrPortDevice(addr string, port int, d DeviceEntry) (RsdService, error) {
+	conn, err := ConnectTUNDevice(addr, port, d)
+	if err != nil {
+		return RsdService{}, fmt.Errorf("NewWithAddrPortTUNDevice: failed to connect to device: %w", err)
+	}
+	return newRsdServiceFromTcpConn(conn)
+}
+
+func newRsdServiceFromTcpConn(conn *net.TCPConn) (RsdService, error) {
+	h, err := http.NewHttpConnection(conn)
+	if err != nil {
+		return RsdService{}, fmt.Errorf("newRsdServiceFromTcpConn: failed to connect to http2: %w", err)
 	}
 
 	x, err := CreateXpcConnection(h)
 	if err != nil {
-		return RsdService{}, fmt.Errorf("NewWithAddrPort: failed to create xpc connection: %w", err)
+		return RsdService{}, fmt.Errorf("newRsdServiceFromTcpConn: failed to create xpc connection: %w", err)
 	}
 
 	return RsdService{
@@ -164,7 +204,7 @@ func NewWithAddrPort(addr string, port int) (RsdService, error) {
 // Handshake sends a handshake request to the device and returns the RsdHandshakeResponse
 // which contains the UDID and the services available on the device.
 func (s RsdService) Handshake() (RsdHandshakeResponse, error) {
-	log.Debug("execute handshake")
+	golog.Debug("execute handshake", "module", logModule)
 	m, err := s.xpc.ReceiveOnClientServerStream()
 	if err != nil {
 		return RsdHandshakeResponse{}, fmt.Errorf("Handshake: failed to receive handshake response. %w", err)

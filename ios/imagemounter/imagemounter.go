@@ -9,10 +9,12 @@ import (
 
 	"github.com/Masterminds/semver"
 	"github.com/danielpaulus/go-ios/ios"
-	log "github.com/sirupsen/logrus"
+	"github.com/danielpaulus/go-ios/ios/golog"
 )
 
 const serviceName string = "com.apple.mobile.mobile_image_mounter"
+
+const logModule = "go-ios/imagemounter"
 
 // DeveloperDiskImageMounter to mobile image mounter
 type DeveloperDiskImageMounter struct {
@@ -26,6 +28,7 @@ type DeveloperDiskImageMounter struct {
 type ImageMounter interface {
 	ListImages() ([][]byte, error)
 	MountImage(imagePath string) error
+	UnmountImage() error
 	io.Closer
 }
 
@@ -79,7 +82,7 @@ func (conn *DeveloperDiskImageMounter) MountImage(imagePath string) error {
 	}
 	defer imageFile.Close()
 	n, err := io.Copy(conn.deviceConn.Writer(), imageFile)
-	log.Debugf("%d bytes written", n)
+	golog.Debug("bytes written", "module", logModule, "imagePath", imagePath, "count", n)
 	if err != nil {
 		return err
 	}
@@ -95,13 +98,26 @@ func (conn *DeveloperDiskImageMounter) MountImage(imagePath string) error {
 	return hangUp(conn.plistRw)
 }
 
+func (conn *DeveloperDiskImageMounter) UnmountImage() error {
+	req := map[string]interface{}{
+		"Command":   "UnmountImage",
+		"MountPath": "/Developer",
+	}
+	golog.Debug("sending", "module", logModule, "request", req)
+	err := conn.plistRw.Write(req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (conn *DeveloperDiskImageMounter) mountImage(signatureBytes []byte) error {
 	req := map[string]interface{}{
 		"Command":        "MountImage",
 		"ImageSignature": signatureBytes,
 		"ImageType":      "Developer",
 	}
-	log.Debugf("sending: %+v", req)
+	golog.Debug("sending", "module", logModule, "request", req)
 	err := conn.plistRw.Write(req)
 	if err != nil {
 		return err
@@ -152,7 +168,7 @@ func waitForUploadComplete(plistRw ios.PlistCodecReadWriter) error {
 	if err != nil {
 		return err
 	}
-	log.Debugf("received complete: %+v", plist)
+	golog.Debug("received complete", "module", logModule, "response", plist)
 	status, ok := plist["Status"]
 	if !ok {
 		return fmt.Errorf("unexpected response: %+v", plist)
@@ -167,7 +183,7 @@ func hangUp(plistRw ios.PlistCodecReadWriter) error {
 	req := map[string]interface{}{
 		"Command": "Hangup",
 	}
-	log.Debugf("sending: %+v", req)
+	golog.Debug("sending", "module", logModule, "request", req)
 	return plistRw.Write(req)
 }
 
@@ -183,10 +199,20 @@ func MountImage(device ios.DeviceEntry, path string) error {
 		return fmt.Errorf("failed getting image list: %v", err)
 	}
 	if len(signatures) != 0 {
-		log.Warn("there is already a developer image mounted, reboot the device if you want to remove it. aborting.")
+		golog.Warn("there is already a developer image mounted, reboot the device if you want to remove it. aborting.", "module", logModule, "udid", device.Properties.SerialNumber, "imagePath", path)
 		return nil
 	}
 	return conn.MountImage(path)
+}
+
+func UnmountImage(device ios.DeviceEntry) error {
+	conn, err := NewImageMounter(device)
+	if err != nil {
+		return fmt.Errorf("failed connecting to image mounter: %v", err)
+	}
+	defer conn.Close()
+
+	return conn.UnmountImage()
 }
 
 func listImages(prw ios.PlistCodecReadWriter, imageType string, v *semver.Version) ([][]byte, error) {
@@ -235,7 +261,7 @@ func sendUploadRequest(plistRw ios.PlistCodecReadWriter, imageType string, signa
 		"ImageSize":      fileSize,
 		"ImageType":      imageType,
 	}
-	log.Debugf("sending: %+v", req)
+	golog.Debug("sending", "module", logModule, "imageType", imageType, "request", req)
 	err := plistRw.Write(req)
 	if err != nil {
 		return fmt.Errorf("sendUploadRequest: failed to write command 'ReceiveBytes': %w", err)
@@ -246,7 +272,7 @@ func sendUploadRequest(plistRw ios.PlistCodecReadWriter, imageType string, signa
 	if err != nil {
 		return fmt.Errorf("sendUploadRequest: failed to read response for 'ReceiveBytes': %w", err)
 	}
-	log.Debugf("upload response: %+v", plist)
+	golog.Debug("upload response", "module", logModule, "imageType", imageType, "response", plist)
 	status, ok := plist["Status"]
 	if !ok {
 		return fmt.Errorf("sendUploadRequest: unexpected response: %+v", plist)
@@ -263,6 +289,7 @@ func IsDevModeEnabled(device ios.DeviceEntry) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("IsDevModeEnabled: failed connecting to image mounter service with err: %w", err)
 	}
+	defer conn.Close()
 
 	reader := conn.Reader()
 	request := map[string]interface{}{"Command": "QueryDeveloperModeStatus"}

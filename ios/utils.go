@@ -1,17 +1,55 @@
 package ios
 
 import (
+	"archive/zip"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Masterminds/semver"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/danielpaulus/go-ios/ios/golog"
 	plist "howett.net/plist"
 )
+
+// logModule identifies this package in structured logs. It is injected as the
+// "module" attribute on every golog call in this package.
+const logModule = "go-ios"
+
+// UseHttpProxy sets the default http transport to use the given proxy url.
+// If the proxyUrl is empty, it will try to use the HTTP_PROXY or HTTPS_PROXY environment variables.
+// If the environment variables are not set, it will not set a proxy.
+// If the proxyUrl is invalid, it will return an error.
+func UseHttpProxy(proxyUrl string) error {
+	if proxyUrl != "" {
+		parsedUrl, err := url.Parse(proxyUrl)
+		if err != nil {
+			return fmt.Errorf("could not parse proxy url %s: %v", proxyUrl, err)
+		}
+		http.DefaultTransport = &http.Transport{Proxy: http.ProxyURL(parsedUrl)}
+		return nil
+	}
+
+	proxyUrl = os.Getenv("HTTP_PROXY")
+	if os.Getenv("HTTPS_PROXY") != "" {
+		proxyUrl = os.Getenv("HTTPS_PROXY")
+	}
+
+	if proxyUrl != "" {
+		parsedUrl, err := url.Parse(proxyUrl)
+		if err != nil {
+			return fmt.Errorf("could not parse proxy url %s: %v", proxyUrl, err)
+		}
+		http.DefaultTransport = &http.Transport{Proxy: http.ProxyURL(parsedUrl)}
+	}
+	return nil
+}
 
 // ToPlist converts a given struct to a Plist using the
 // github.com/DHowett/go-plist library. Make sure your struct is exported.
@@ -71,10 +109,10 @@ func GetDeviceWithAddress(udid string, address string, provider RsdPortProvider)
 	if udid == "" {
 		udid = os.Getenv("udid")
 		if udid != "" {
-			log.Info("using udid from env.udid variable")
+			golog.Info("using udid from env.udid variable", "module", logModule, "udid", udid)
 		}
 	}
-	log.Debugf("Looking for device '%s'", udid)
+	golog.Debug("Looking for device", "module", logModule, "udid", udid)
 	deviceList, err := ListDevices()
 	if err != nil {
 		return DeviceEntry{}, err
@@ -84,8 +122,7 @@ func GetDeviceWithAddress(udid string, address string, provider RsdPortProvider)
 			return DeviceEntry{}, errors.New("no iOS devices are attached to this host")
 		}
 		device := deviceList.DeviceList[0]
-		log.WithFields(log.Fields{"udid": device.Properties.SerialNumber}).
-			Info("no udid specified using first device in list")
+		golog.Info("no udid specified using first device in list", "module", logModule, "udid", device.Properties.SerialNumber)
 		device.Address = address
 		device.Rsd = provider
 		return device, nil
@@ -179,4 +216,63 @@ func GenericSliceToType[T any](input []interface{}) ([]T, error) {
 		}
 	}
 	return result, nil
+}
+
+// Unzip is code I copied from https://golangcode.com/unzip-files-in-go/
+// thank you guys for the cool helpful code examples :-D
+func Unzip(src string, dest string) ([]string, uint64, error) {
+	var overallSize uint64
+	var filenames []string
+
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return filenames, 0, err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+
+		// Store filename/path for returning and using later on
+		fpath := filepath.Join(dest, f.Name)
+
+		// Check for ZipSlip. More Info: http://bit.ly/2MsjAWE
+		if !strings.HasPrefix(fpath, filepath.Clean(dest)+string(os.PathSeparator)) {
+			return filenames, 0, fmt.Errorf("%s: illegal file path", fpath)
+		}
+
+		filenames = append(filenames, fpath)
+
+		if f.FileInfo().IsDir() {
+			// Make Folder
+			os.MkdirAll(fpath, os.ModePerm)
+			continue
+		}
+
+		// Make File
+		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+			return filenames, 0, err
+		}
+
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return filenames, 0, err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return filenames, 0, err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		// sizeStat, err := outFile.Stat()
+		overallSize += f.UncompressedSize64
+		// Close the file without defer to close before next iteration of loop
+		outFile.Close()
+		rc.Close()
+
+		if err != nil {
+			return filenames, 0, err
+		}
+	}
+	return filenames, overallSize, nil
 }

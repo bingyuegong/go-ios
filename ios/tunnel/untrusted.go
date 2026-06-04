@@ -12,10 +12,10 @@ import (
 
 	"io"
 
+	"github.com/danielpaulus/go-ios/ios/golog"
 	"github.com/danielpaulus/go-ios/ios/opack"
 	"github.com/danielpaulus/go-ios/ios/xpc"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/hkdf"
@@ -77,7 +77,7 @@ func (t *tunnelService) ManualPair() error {
 	if err == nil {
 		return nil
 	}
-	log.WithError(err).Info("pair verify failed")
+	golog.Info("pair verify failed", "module", logModule, "error", err)
 
 	err = t.setupManualPairing()
 	if err != nil {
@@ -108,7 +108,7 @@ func (t *tunnelService) ManualPair() error {
 }
 
 func (t *tunnelService) createTunnelListener() (tunnelListener, error) {
-	log.Info("create tunnel listener")
+	golog.Info("create tunnel listener", "module", logModule)
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 
 	if err != nil {
@@ -144,7 +144,14 @@ func (t *tunnelService) createTunnelListener() (tunnelListener, error) {
 		return tunnelListener{}, err
 	}
 	port := createListener["port"].(float64)
-	devPublicKey := createListener["devicePublicKey"].(string)
+	devPublicKeyRaw, found := createListener["devicePublicKey"]
+	if !found {
+		return tunnelListener{}, fmt.Errorf("no public key found")
+	}
+	devPublicKey, isString := devPublicKeyRaw.(string)
+	if !isString {
+		return tunnelListener{}, fmt.Errorf("public key is not a string")
+	}
 	devPK, err := base64.StdEncoding.DecodeString(devPublicKey)
 	if err != nil {
 		return tunnelListener{}, err
@@ -272,6 +279,10 @@ func (t *tunnelService) verifyPair() error {
 		return err
 	}
 
+	if devicePublicKeyBytes == nil {
+		_ = t.controlChannel.writeEvent(pairVerifyFailed{})
+		return fmt.Errorf("verifyPair: did not get public key from device. Can not verify pairing")
+	}
 	devicePublicKey, err := ecdh.X25519().NewPublicKey(devicePublicKeyBytes)
 	if err != nil {
 		return err
@@ -335,7 +346,7 @@ func (t *tunnelService) verifyPair() error {
 		return err
 	}
 	if len(errRes) > 0 {
-		log.Debug("send pair verify failed event")
+		golog.Debug("send pair verify failed event", "module", logModule)
 		err := t.controlChannel.writeEvent(pairVerifyFailed{})
 		if err != nil {
 			return err

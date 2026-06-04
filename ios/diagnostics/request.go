@@ -30,10 +30,29 @@ type allDiagnosticsResponse struct {
 }
 
 type Diagnostics struct {
-	GasGauge GasGauge
-	HDMI     HDMI
-	NAND     NAND
-	WiFi     WiFi
+	GasGauge   GasGauge
+	HDMI       HDMI
+	NAND       NAND
+	WiFi       WiFi
+	IORegistry IORegistry
+}
+
+// IORegistry relates to the battery stats
+type IORegistry struct {
+	InstantAmperage int
+	Temperature     int
+	Voltage         int
+	IsCharging      bool
+	CurrentCapacity int
+
+	DesignCapacity          uint64
+	NominalChargeCapacity   uint64
+	AbsoluteCapacity        uint64
+	AppleRawCurrentCapacity uint64
+	AppleRawMaxCapacity     uint64
+	CycleCount              uint64
+	AtCriticalLevel         bool
+	AtWarnLevel             bool
 }
 
 type WiFi struct {

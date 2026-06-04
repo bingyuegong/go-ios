@@ -1,6 +1,7 @@
 package instruments
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/danielpaulus/go-ios/ios"
@@ -20,11 +21,52 @@ type ProcessInfo struct {
 	StartDate     time.Time
 }
 
+// processAttributes returns the attributes list which can be used for monitoring
+func (d DeviceInfoService) processAttributes() ([]interface{}, error) {
+	resp, err := d.channel.MethodCall("sysmonProcessAttributes")
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload[0].([]interface{}), nil
+}
+
+// systemAttributes returns the attributes list which can be used for monitoring
+func (d DeviceInfoService) systemAttributes() ([]interface{}, error) {
+	resp, err := d.channel.MethodCall("sysmonSystemAttributes")
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload[0].([]interface{}), nil
+}
+
 // ProcessList returns a []ProcessInfo, one for each process running on the iOS device
 func (d DeviceInfoService) ProcessList() ([]ProcessInfo, error) {
 	resp, err := d.channel.MethodCall("runningProcesses")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Payload) == 0 {
+		return []ProcessInfo{}, nil
+	}
+
 	result := mapToProcInfo(resp.Payload[0].([]interface{}))
 	return result, err
+}
+
+// ProcessByName looks up a running process by name or real app name and
+// returns its ProcessInfo. Returns an error if no match is found.
+func (d DeviceInfoService) ProcessByName(name string) (ProcessInfo, error) {
+	procs, err := d.ProcessList()
+	if err != nil {
+		return ProcessInfo{}, err
+	}
+	for _, p := range procs {
+		if p.Name == name || p.RealAppName == name {
+			return p, nil
+		}
+	}
+	return ProcessInfo{}, fmt.Errorf("no running process found with name %q", name)
 }
 
 // NameForPid resolves a process name for a given pid

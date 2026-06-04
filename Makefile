@@ -9,30 +9,19 @@
 GO_IOS_BINARY_NAME=ios
 NCM_BINARY_NAME=go-ncm
 
+# Define only if compiling for system different than our own
+OS=
+ARCH=
 
-# Detect the system architecture
-UNAME_S := $(shell uname -s)
-UNAME_M := $(shell uname -m)
-
-# Default GOARCH value
-GOARCH := amd64
-
-# Set GOARCH based on the detected architecture
-ifeq ($(UNAME_M),x86_64)
-    GOARCH := amd64
-else ifeq ($(UNAME_M),armv7l)
-    GOARCH := arm
-else ifeq ($(UNAME_M),aarch64)
-    GOARCH := arm64
-# Add more architecture mappings as needed
-endif
+# Prepend each non-empty OS/ARCH definition to "go" command
+GOEXEC=$(strip $(foreach v,OS ARCH,$(and $($v),GO$v=$($v) )) go)
 
 # Build the Go program
 build:
-	@go work use .
-	@GOARCH=$(GOARCH) go build -o $(GO_IOS_BINARY_NAME) ./main.go
-	@go work use ./ncm
-	@CGO_ENABLED=1 GOARCH=$(GOARCH) go build -o $(NCM_BINARY_NAME) ./cmd/cdc-ncm/main.go
+	@$(GOEXEC) work use .
+	@$(GOEXEC) build -o $(GO_IOS_BINARY_NAME) ./main.go
+	@$(GOEXEC) work use ./ncm
+	@CGO_ENABLED=1 $(GOEXEC) build -o $(NCM_BINARY_NAME) ./cmd/cdc-ncm/main.go
 
 # Run the Go program with sudo
 run: build
@@ -41,5 +30,20 @@ run: build
 # Build and run
 up: build run
 
+# Run linter
+lint:
+	@golangci-lint run
+
+# Setup development environment (installs git hooks)
+setup:
+	@echo "Configuring git hooks..."
+	@git config core.hooksPath .githooks
+	@echo "Done! Pre-commit hooks are now active."
+
+readme-help:
+	@out=$$(mktemp /tmp/go-ios.XXXXXX); trap 'rm -f "$$out"' EXIT INT TERM; \
+	  perl -pe'BEGIN{$$/=q(<!-- help begin -->)} if($$/=~s/begin/end/){<>;$$_.="\n\n```text\n".`go run . --help`."```\n\n$$/"}' README.md > "$$out" && \
+		mv "$$out" README.md
+
 # Phony targets
-.PHONY: build run up
+.PHONY: build run up lint setup readme-help

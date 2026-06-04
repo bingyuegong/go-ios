@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"howett.net/plist"
 )
 
@@ -20,7 +21,8 @@ type tssClient struct {
 
 func newTssClient() tssClient {
 	c := &http.Client{
-		Timeout: 1 * time.Minute,
+		Timeout:   1 * time.Minute,
+		Transport: http.DefaultTransport,
 	}
 
 	return tssClient{
@@ -33,7 +35,8 @@ func (t tssClient) getSignature(identity buildIdentity, identifiers personalizat
 		"@ApImg4Ticket":     true,
 		"@BBTicket":         true,
 		"@HostPlatformInfo": "mac",
-		"@VersionInfo":      "libauthinstall-973.40.2",
+		"@VersionInfo":      "libauthinstall-1104.0.9",
+		"@UUID":             uuid.New().String(),
 		"ApBoardID":         identifiers.BoardId,
 		"ApChipID":          identifiers.ChipID,
 		"ApECID":            ecid,
@@ -41,23 +44,32 @@ func (t tssClient) getSignature(identity buildIdentity, identifiers personalizat
 		"ApProductionMode":  true,
 		"ApSecurityDomain":  identifiers.SecurityDomain,
 		"ApSecurityMode":    true,
-		"LoadableTrustCache": map[string]interface{}{
-			"Digest":  identity.Manifest.LoadableTrustCache.Digest,
-			"EPRO":    true,
-			"ESEC":    true,
-			"Trusted": true,
-		},
+		"SepNonce":          make([]byte, 20),
+		"UID_MODE":          false,
+	}
 
-		"PersonalizedDMG": map[string]interface{}{
-			"Digest":  identity.Manifest.PersonalizedDmg.Digest,
-			"EPRO":    true,
-			"ESEC":    true,
-			"Name":    "DeveloperDiskImage",
+	for key, entry := range identity.Manifest {
+		if !entry.Trusted {
+			continue
+		}
+		entryParams := map[string]interface{}{
+			"Digest":  entry.Digest,
 			"Trusted": true,
-		},
+			"EPRO":    entry.EPRO,
+			"ESEC":    entry.ESEC,
+		}
+		if key == "PersonalizedDMG" || key == "PersonalizedDmg" {
+			if entry.Name != "" {
+				entryParams["Name"] = entry.Name
+			} else {
+				entryParams["Name"] = "DeveloperDiskImage"
+			}
+		}
+		params[key] = entryParams
+	}
 
-		"SepNonce": make([]byte, 20),
-		"UID_MODE": false,
+	for k, v := range identifiers.AdditionalIdentifiers {
+		params[k] = v
 	}
 
 	buf := bytes.NewBuffer(nil)
@@ -66,11 +78,13 @@ func (t tssClient) getSignature(identity buildIdentity, identifiers personalizat
 	if err != nil {
 		return nil, fmt.Errorf("getSignature: failed to encode request body: %w", err)
 	}
+
 	h := http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
+			Proxy: t.h.Transport.(*http.Transport).Proxy,
 		},
 		Timeout: 1 * time.Minute,
 	}

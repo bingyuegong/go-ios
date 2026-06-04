@@ -3,11 +3,14 @@ package http
 import (
 	"bytes"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/http2"
 	"io"
 	"sync/atomic"
+
+	"github.com/danielpaulus/go-ios/ios/golog"
+	"golang.org/x/net/http2"
 )
+
+const logModule = "go-ios/http"
 
 type StreamId uint32
 
@@ -67,8 +70,7 @@ func NewHttpConnection(rw io.ReadWriteCloser) (*HttpConnection, error) {
 			return nil, fmt.Errorf("NewHttpConnection: could not write settings ack. %w", err)
 		}
 	} else {
-		log.WithField("frame", frame.Header().String()).
-			Warn("expected setttings frame")
+		golog.Warn("expected setttings frame", "module", logModule, "frame", frame.Header().String())
 	}
 
 	return &HttpConnection{
@@ -148,6 +150,9 @@ func (r *HttpConnection) readDataFrame() error {
 					return fmt.Errorf("readDataFrame: could not write settings ack. %w", err)
 				}
 			}
+		case http2.FrameRSTStream:
+			r := f.(*http2.RSTStreamFrame)
+			return fmt.Errorf("readDataFrame: got RST frame with error code: %s", r.ErrCode.String())
 		default:
 			break
 		}

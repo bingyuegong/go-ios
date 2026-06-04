@@ -14,15 +14,16 @@ import (
 	"io"
 	"math/big"
 	"os/exec"
-	"runtime"
 	"time"
 
 	"github.com/danielpaulus/go-ios/ios"
+	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/danielpaulus/go-ios/ios/http"
 
 	"github.com/quic-go/quic-go"
-	"github.com/sirupsen/logrus"
-	"github.com/songgao/water"
 )
+
+const logModule = "go-ios/tunnel"
 
 // Tunnel describes the parameters of an established tunnel to the device
 type Tunnel struct {
@@ -31,28 +32,36 @@ type Tunnel struct {
 	// RsdPort is the port on which remote service discover is reachable
 	RsdPort int `json:"rsdPort"`
 	// Udid is the id of the device for this tunnel
-	Udid   string `json:"udid"`
-	closer io.Closer
+	Udid string `json:"udid"`
+	// Userspace TUN device is used, connect to the local tcp port at Default
+	UserspaceTUN     bool `json:"userspaceTun"`
+	UserspaceTUNPort int  `json:"userspaceTunPort"`
+	closer           func() error
 }
 
 // Close closes the connection to the device and removes the virtual network interface from the host
 func (t Tunnel) Close() error {
-	return t.closer.Close()
+	return t.closer()
 }
 
 // ManualPairAndConnectToTunnel tries to verify an existing pairing, and if this fails it triggers a new manual pairing process.
 // After a successful pairing a tunnel for this device gets started and the tunnel information is returned
 func ManualPairAndConnectToTunnel(ctx context.Context, device ios.DeviceEntry, p PairRecordManager) (Tunnel, error) {
+	golog.Info("ManualPairAndConnectToTunnel: starting manual pairing and tunnel connection, dont forget to stop remoted first with 'sudo pkill -SIGSTOP remoted' and run this with sudo.", "module", logModule, "udid", device.Properties.SerialNumber)
 	addr, err := ios.FindDeviceInterfaceAddress(ctx, device)
 	if err != nil {
 		return Tunnel{}, fmt.Errorf("ManualPairAndConnectToTunnel: failed to find device ethernet interface: %w", err)
 	}
 
-	port, err := getUntrustedTunnelServicePort(addr)
+	port, err := getUntrustedTunnelServicePort(addr, device)
 	if err != nil {
 		return Tunnel{}, fmt.Errorf("ManualPairAndConnectToTunnel: could not find port for '%s'", untrustedTunnelServiceName)
 	}
-	h, err := ios.ConnectToHttp2WithAddr(addr, port)
+	conn, err := ios.ConnectTUNDevice(addr, port, device)
+	if err != nil {
+		return Tunnel{}, fmt.Errorf("ManualPairAndConnectToTunnel: failed to connect to TUN device: %w", err)
+	}
+	h, err := http.NewHttpConnection(conn)
 	if err != nil {
 		return Tunnel{}, fmt.Errorf("ManualPairAndConnectToTunnel: failed to create HTTP2 connection: %w", err)
 	}
@@ -78,8 +87,8 @@ func ManualPairAndConnectToTunnel(ctx context.Context, device ios.DeviceEntry, p
 	return t, nil
 }
 
-func getUntrustedTunnelServicePort(addr string) (int, error) {
-	rsdService, err := ios.NewWithAddr(addr)
+func getUntrustedTunnelServicePort(addr string, device ios.DeviceEntry) (int, error) {
+	rsdService, err := ios.NewWithAddrDevice(addr, device)
 	if err != nil {
 		return 0, fmt.Errorf("getUntrustedTunnelServicePort: failed to connect to RSD service: %w", err)
 	}
@@ -97,7 +106,7 @@ func getUntrustedTunnelServicePort(addr string) (int, error) {
 }
 
 func connectToTunnel(ctx context.Context, info tunnelListener, addr string, device ios.DeviceEntry) (Tunnel, error) {
-	logrus.WithField("address", addr).WithField("port", info.TunnelPort).Info("connect to tunnel endpoint on device")
+	golog.Info("connect to tunnel endpoint on device", "module", logModule, "udid", device.Properties.SerialNumber, "address", addr, "port", info.TunnelPort)
 
 	conf, err := createTlsConfig(info)
 	if err != nil {
@@ -112,17 +121,23 @@ func connectToTunnel(ctx context.Context, info tunnelListener, addr string, devi
 		return Tunnel{}, err
 	}
 
-	err = conn.SendDatagram(make([]byte, 1))
+	err = conn.SendDatagram(make([]byte, 1024))
 	if err != nil {
 		return Tunnel{}, err
 	}
 
-	tunnelInfo, err := exchangeCoreTunnelParameters(conn)
+	stream, err := conn.OpenStream()
+	if err != nil {
+		return Tunnel{}, err
+	}
+
+	tunnelInfo, err := exchangeCoreTunnelParameters(stream)
+	stream.Close()
 	if err != nil {
 		return Tunnel{}, fmt.Errorf("could not exchange tunnel parameters. %w", err)
 	}
 
-	utunIface, err := setupTunnelInterface(err, tunnelInfo)
+	utunIface, err := setupTunnelInterface(tunnelInfo)
 	if err != nil {
 		return Tunnel{}, fmt.Errorf("could not setup tunnel interface. %w", err)
 	}
@@ -134,63 +149,30 @@ func connectToTunnel(ctx context.Context, info tunnelListener, addr string, devi
 	go func() {
 		err := forwardDataToInterface(tunnelCtx, conn, utunIface)
 		if err != nil {
-			logrus.WithError(err).Error("failed to forward data to tunnel interface")
+			golog.Error("failed to forward data to tunnel interface", "module", logModule, "udid", device.Properties.SerialNumber, "error", err)
 		}
 	}()
 
 	go func() {
 		err := forwardDataToDevice(tunnelCtx, tunnelInfo.ClientParameters.Mtu, utunIface, conn)
 		if err != nil {
-			logrus.WithError(err).Error("failed to forward data to the device")
+			golog.Error("failed to forward data to the device", "module", logModule, "udid", device.Properties.SerialNumber, "error", err)
 		}
 	}()
+
+	closeFunc := func() error {
+		cancel()
+		quicErr := conn.CloseWithError(0, "")
+		utunErr := utunIface.Close()
+		return errors.Join(quicErr, utunErr)
+	}
 
 	return Tunnel{
 		Address: tunnelInfo.ServerAddress,
 		RsdPort: int(tunnelInfo.ServerRSDPort),
 		Udid:    device.Properties.SerialNumber,
-		closer: tunnelCloser{
-			quicConn:   conn,
-			utunCloser: utunIface,
-			ctxCancel:  cancel,
-		},
+		closer:  closeFunc,
 	}, nil
-}
-
-func setupTunnelInterface(err error, tunnelInfo tunnelParameters) (*water.Interface, error) {
-	ifce, err := water.New(water.Config{
-		DeviceType: water.TUN,
-	})
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
-	const prefixLength = 64 // TODO: this could be calculated from the netmask provided by the device
-	setIpAddr := exec.Command("ifconfig", ifce.Name(), "inet6", "add", fmt.Sprintf("%s/%d", tunnelInfo.ClientParameters.Address, prefixLength))
-	err = runCmd(setIpAddr)
-	if err != nil {
-		return nil, fmt.Errorf("setupTunnelInterface: failed to set IP address for interface: %w", err)
-	}
-
-	// FIXME: we need to reduce the tunnel interface MTU so that the OS takes care of splitting the payloads into
-	// smaller packets. If we use a larger number here, the QUIC tunnel won't send the packets properly
-	// This is only necessary on MacOS, on Linux we can't set the MTU to a value less than 1280 (minimum for IPv6)
-	if runtime.GOOS == "darwin" {
-		ifceMtu := tunnelInfo.ClientParameters.Mtu - 78
-		setMtu := exec.Command("ifconfig", ifce.Name(), "mtu", fmt.Sprintf("%d", ifceMtu), "up")
-		err = runCmd(setMtu)
-		if err != nil {
-			return nil, fmt.Errorf("setupTunnelInterface: failed to configure MTU: %w", err)
-		}
-	}
-
-	enableIfce := exec.Command("ifconfig", ifce.Name(), "up")
-	err = runCmd(enableIfce)
-	if err != nil {
-		return nil, fmt.Errorf("setupTunnelInterface: failed to enable interface %s: %w", ifce.Name(), err)
-	}
-
-	return ifce, nil
 }
 
 func runCmd(cmd *exec.Cmd) error {
@@ -277,13 +259,7 @@ func forwardDataToInterface(ctx context.Context, conn quic.Connection, w io.Writ
 	}
 }
 
-func exchangeCoreTunnelParameters(conn quic.Connection) (tunnelParameters, error) {
-	stream, err := conn.OpenStream()
-	if err != nil {
-		return tunnelParameters{}, err
-	}
-	defer stream.Close()
-
+func exchangeCoreTunnelParameters(stream io.ReadWriteCloser) (tunnelParameters, error) {
 	rq, err := json.Marshal(map[string]interface{}{
 		"type": "clientHandshakeRequest",
 		"mtu":  1280,
@@ -323,17 +299,4 @@ func exchangeCoreTunnelParameters(conn quic.Connection) (tunnelParameters, error
 		return tunnelParameters{}, err
 	}
 	return parameters, nil
-}
-
-type tunnelCloser struct {
-	quicConn   quic.Connection
-	utunCloser io.Closer
-	ctxCancel  context.CancelFunc
-}
-
-func (t tunnelCloser) Close() error {
-	t.ctxCancel()
-	quicErr := t.quicConn.CloseWithError(0, "")
-	utunErr := t.utunCloser.Close()
-	return errors.Join(quicErr, utunErr)
 }

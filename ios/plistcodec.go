@@ -9,7 +9,7 @@ import (
 	"io"
 	"reflect"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/danielpaulus/go-ios/ios/golog"
 )
 
 // PlistCodec is a codec for PLIST based services with [4 byte big endian length][plist-payload] based messages
@@ -25,7 +25,7 @@ func NewPlistCodec() PlistCodec {
 // followed by the plist as a string
 func (plistCodec PlistCodec) Encode(message interface{}) ([]byte, error) {
 	stringContent := ToPlist(message)
-	log.Tracef("Lockdown send %v", reflect.TypeOf(message))
+	golog.Trace("Lockdown send", "module", logModule, "type", reflect.TypeOf(message))
 	buf := new(bytes.Buffer)
 	length := len(stringContent)
 	messageLength := uint32(length)
@@ -58,20 +58,6 @@ func (plistCodec PlistCodec) Decode(r io.Reader) ([]byte, error) {
 	return payloadBytes, nil
 }
 
-func (p *PlistCodec) RecvBytes(r io.Reader) ([]byte, error) {
-	size := uint32(0)
-	if err := binary.Read(r, binary.BigEndian, &size); err != nil {
-		return nil, err
-	}
-
-	data := make([]byte, size)
-	if _, err := io.ReadFull(r, data); err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
-
 // PlistCodecReadWriter handles length encoded plist messages
 // Each message starts with an uint32 value representing the length of the encoded payload
 // followed by the binary encoded plist data
@@ -92,7 +78,7 @@ func NewPlistCodecReadWriter(r io.Reader, w io.Writer) PlistCodecReadWriter {
 // this encoded data followed by the actual data.
 func (p PlistCodecReadWriter) Write(m interface{}) error {
 	stringContent := ToPlist(m)
-	log.Tracef("Lockdown send %v", reflect.TypeOf(m))
+	golog.Trace("Lockdown send", "module", logModule, "type", reflect.TypeOf(m))
 	buf := new(bytes.Buffer)
 	length := len(stringContent)
 	messageLength := uint32(length)

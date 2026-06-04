@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/danielpaulus/go-ios/ios"
+	"github.com/danielpaulus/go-ios/ios/golog"
 	"github.com/lunixbochs/struc"
-	log "github.com/sirupsen/logrus"
 	"howett.net/plist"
 )
+
+const logModule = "go-ios/pcap"
 
 var (
 	// IOSPacketHeader default is -1
@@ -71,7 +72,7 @@ func Start(device ios.DeviceEntry) error {
 		return err
 	}
 	defer f.Close()
-	log.Info("Create pcap file: ", fname)
+	golog.Info("create pcap file", "module", logModule, "udid", device.Properties.SerialNumber, "path", fname)
 	for {
 		b, err := plistCodec.Decode(intf.Reader())
 		if err != nil {
@@ -184,7 +185,7 @@ func getPacket(buf []byte) (iph IOSPacketHeader, packet []byte, err error) {
 	}
 
 	// log.Info("IOSPacketHeader: ", iph.ToString())
-	packet, err = ioutil.ReadAll(preader)
+	packet, err = io.ReadAll(preader)
 	if err != nil {
 		return iph, packet, err
 	}

@@ -1,13 +1,16 @@
 package imagemounter
 
 import (
+	"crypto/sha512"
 	"fmt"
-	"github.com/Masterminds/semver"
-	"github.com/danielpaulus/go-ios/ios"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"path"
+	"strings"
+
+	"github.com/Masterminds/semver"
+	"github.com/danielpaulus/go-ios/ios"
+	"github.com/danielpaulus/go-ios/ios/golog"
 )
 
 // PersonalizedDeveloperDiskImageMounter allows mounting personalized developer disk images
@@ -20,6 +23,7 @@ type PersonalizedDeveloperDiskImageMounter struct {
 	version    *semver.Version
 	tss        tssClient
 	ecid       uint64
+	entry      ios.DeviceEntry
 }
 
 // NewPersonalizedDeveloperDiskImageMounter creates a PersonalizedDeveloperDiskImageMounter for the device entry
@@ -44,6 +48,7 @@ func NewPersonalizedDeveloperDiskImageMounter(entry ios.DeviceEntry, version *se
 		version:    version,
 		tss:        newTssClient(),
 		ecid:       ecid,
+		entry:      entry,
 	}, nil
 }
 
@@ -60,8 +65,9 @@ func (p PersonalizedDeveloperDiskImageMounter) ListImages() ([][]byte, error) {
 // MountImage mounts the personalized developer disk image present at imagePath.
 // imagePath needs to point to the 'Restore' directory of the personalized developer disk image.
 //
-// MountImage gets device identifiers and a nonce from the device first, which needs to be signed by Apple
-// and after that the developer disk image is sent to the device with this signature to be able to mount it.
+// MountImage first tries to reuse an existing device-side manifest via QueryPersonalizationManifest
+// to avoid unnecessary Apple TSS requests on re-mounts. If no manifest exists, it falls back
+// to querying a nonce and getting a new signature from Apple's TSS server.
 func (p PersonalizedDeveloperDiskImageMounter) MountImage(imagePath string) error {
 	manifest, err := loadBuildManifest(path.Join(imagePath, "BuildManifest.plist"))
 	if err != nil {
@@ -72,24 +78,40 @@ func (p PersonalizedDeveloperDiskImageMounter) MountImage(imagePath string) erro
 	if err != nil {
 		return fmt.Errorf("MountImage: failed to query personalization identifiers: %w", err)
 	}
-	nonce, err := p.queryPersonalizedImageNonce()
-	if err != nil {
-		return fmt.Errorf("MountImage: failed to get nonce: %w", err)
-	}
 
 	identity, err := manifest.findIdentity(identifiers)
 	if err != nil {
 		return fmt.Errorf("MountImage: could not find identity for identifiers %+v: %w", identifiers, err)
 	}
 
-	signature, err := p.tss.getSignature(identity, identifiers, nonce, p.ecid)
+	dmgPath := path.Join(imagePath, identity.dmgPath())
+
+	signature, err := p.queryPersonalizationManifest(dmgPath)
 	if err != nil {
-		return fmt.Errorf("MountImage: failed to get signature from Apple: %w", err)
+		golog.Info("no existing device-side manifest, requesting new signature from Apple TSS", "module", logModule, "udid", p.entry.Properties.SerialNumber, "imagePath", imagePath)
+
+		p, err = p.closeAndReconnect()
+		if err != nil {
+			return fmt.Errorf("MountImage: failed to reconnect after manifest query: %w", err)
+		}
+
+		nonce, err := p.queryPersonalizedImageNonce()
+		if err != nil {
+			return fmt.Errorf("MountImage: failed to get nonce: %w", err)
+		}
+
+		signature, err = p.tss.getSignature(identity, identifiers, nonce, p.ecid)
+		if err != nil {
+			return fmt.Errorf("MountImage: failed to get signature from Apple: %w", err)
+		}
+	} else {
+		golog.Info("reusing existing device-side manifest, skipping Apple TSS", "module", logModule, "udid", p.entry.Properties.SerialNumber, "imagePath", imagePath)
 	}
 
-	dmgPath := path.Join(imagePath, identity.Manifest.PersonalizedDmg.Info.Path)
-
 	imageSize, err := getFileSize(dmgPath)
+	if err != nil {
+		return fmt.Errorf("MountImage: %w", err)
+	}
 
 	err = sendUploadRequest(p.plistRw, "Personalized", signature, imageSize)
 	if err != nil {
@@ -101,7 +123,7 @@ func (p PersonalizedDeveloperDiskImageMounter) MountImage(imagePath string) erro
 	}
 	defer imageFile.Close()
 	n, err := io.Copy(p.deviceConn.Writer(), imageFile)
-	log.Debugf("%d bytes written", n)
+	golog.Debug("bytes written", "module", logModule, "udid", p.entry.Properties.SerialNumber, "dmgPath", dmgPath, "count", n)
 	if err != nil {
 		return fmt.Errorf("MountImage: could not copy developer disk image to the device: %w", err)
 	}
@@ -110,7 +132,7 @@ func (p PersonalizedDeveloperDiskImageMounter) MountImage(imagePath string) erro
 		return err
 	}
 
-	trustCache, err := os.ReadFile(path.Join(imagePath, identity.Manifest.LoadableTrustCache.Info.Path))
+	trustCache, err := os.ReadFile(path.Join(imagePath, identity.trustCachePath()))
 	if err != nil {
 		return fmt.Errorf("MountImage: could not load trust-cache. %w", err)
 	}
@@ -125,6 +147,72 @@ func (p PersonalizedDeveloperDiskImageMounter) MountImage(imagePath string) erro
 		return fmt.Errorf("MountImage: HangUp command failed: %w", err)
 	}
 	return nil
+}
+
+func (p PersonalizedDeveloperDiskImageMounter) UnmountImage() error {
+	req := map[string]interface{}{
+		"Command":   "UnmountImage",
+		"MountPath": "/System/Developer",
+	}
+	golog.Debug("sending", "module", logModule, "udid", p.entry.Properties.SerialNumber, "request", req)
+	err := p.plistRw.Write(req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p PersonalizedDeveloperDiskImageMounter) queryPersonalizationManifest(dmgPath string) ([]byte, error) {
+	f, err := os.Open(dmgPath)
+	if err != nil {
+		return nil, fmt.Errorf("queryPersonalizationManifest: failed to open DMG: %w", err)
+	}
+	defer f.Close()
+
+	h := sha512.New384()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, fmt.Errorf("queryPersonalizationManifest: failed to hash DMG: %w", err)
+	}
+	digest := h.Sum(nil)
+
+	err = p.plistRw.Write(map[string]interface{}{
+		"Command":               "QueryPersonalizationManifest",
+		"PersonalizedImageType": "DeveloperDiskImage",
+		"ImageType":             "DeveloperDiskImage",
+		"ImageSignature":        digest,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("queryPersonalizationManifest: failed to write command: %w", err)
+	}
+
+	var resp map[string]interface{}
+	err = p.plistRw.Read(&resp)
+	if err != nil {
+		return nil, fmt.Errorf("queryPersonalizationManifest: failed to read response: %w", err)
+	}
+
+	if sig, ok := resp["ImageSignature"].([]byte); ok {
+		return sig, nil
+	}
+	return nil, fmt.Errorf("queryPersonalizationManifest: no ImageSignature in response %+v", resp)
+}
+
+func (p PersonalizedDeveloperDiskImageMounter) closeAndReconnect() (PersonalizedDeveloperDiskImageMounter, error) {
+	p.deviceConn.Close()
+
+	deviceConn, err := ios.ConnectToService(p.entry, serviceName)
+	if err != nil {
+		return p, fmt.Errorf("closeAndReconnect: failed to reconnect to %s: %w", serviceName, err)
+	}
+
+	return PersonalizedDeveloperDiskImageMounter{
+		deviceConn: deviceConn,
+		plistRw:    ios.NewPlistCodecReadWriter(deviceConn.Reader(), deviceConn.Writer()),
+		version:    p.version,
+		tss:        p.tss,
+		ecid:       p.ecid,
+		entry:      p.entry,
+	}, nil
 }
 
 func (p PersonalizedDeveloperDiskImageMounter) queryPersonalizedImageNonce() ([]byte, error) {
@@ -163,17 +251,29 @@ func (p PersonalizedDeveloperDiskImageMounter) queryIdentifiers() (personalizati
 		return personalizationIdentifiers{}, fmt.Errorf("queryIdentifiers: failed to read response for 'QueryPersonalizationIdentifiers': %w", err)
 	}
 
-	x := resp["PersonalizationIdentifiers"].(map[string]interface{})
+	var persIdentifiers map[string]interface{}
+	var ok bool
+	if persIdentifiers, ok = resp["PersonalizationIdentifiers"].(map[string]interface{}); !ok {
+		return personalizationIdentifiers{}, fmt.Errorf("queryIdentifiers: response has no 'PersonalizationIdentifiers' entry: %+v", resp)
+	}
 
-	var identifiers personalizationIdentifiers
+	identifiers := personalizationIdentifiers{
+		AdditionalIdentifiers: map[string]interface{}{},
+	}
 
-	if board, ok := x["BoardId"].(uint64); ok {
+	for k, v := range persIdentifiers {
+		if strings.HasPrefix(k, "Ap,") {
+			identifiers.AdditionalIdentifiers[k] = v
+		}
+	}
+
+	if board, ok := persIdentifiers["BoardId"].(uint64); ok {
 		identifiers.BoardId = int(board)
 	}
-	if chip, ok := x["ChipID"].(uint64); ok {
+	if chip, ok := persIdentifiers["ChipID"].(uint64); ok {
 		identifiers.ChipID = int(chip)
 	}
-	if secDom, ok := x["SecurityDomain"].(uint64); ok {
+	if secDom, ok := persIdentifiers["SecurityDomain"].(uint64); ok {
 		identifiers.SecurityDomain = int(secDom)
 	}
 
