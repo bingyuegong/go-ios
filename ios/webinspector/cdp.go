@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +29,38 @@ type CDPTarget struct {
 	URL                  string `json:"url"`
 	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 	DevtoolsFrontendURL  string `json:"devtoolsFrontendUrl"`
+}
+
+type cdpPageSession struct {
+	server    *CDPServer
+	ws        *websocket.Conn
+	sessionID string
+	app       Application
+	page      Page
+	targetID  string
+
+	writeMu sync.Mutex
+	sendMu  sync.Mutex
+
+	pendingMu sync.Mutex
+	pending   map[int]chan map[string]any
+
+	frame              map[string]any
+	defaultExecutionID any
+	screencast         *cdpScreencast
+}
+
+type cdpScreencast struct {
+	format     string
+	quality    int
+	maxWidth   int
+	maxHeight  int
+	deviceW    int
+	deviceH    int
+	scale      float64
+	frameID    int
+	lastAck    int
+	cancelFunc context.CancelFunc
 }
 
 func NewCDPServer(client *Client, host string, port int) *CDPServer {
@@ -139,52 +172,80 @@ func (s *CDPServer) handlePageWebSocket(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	session := &cdpPageSession{
+		server:    s,
+		ws:        ws,
+		sessionID: sessionID,
+		app:       app,
+		page:      page,
+		targetID:  targetID,
+		pending:   make(map[int]chan map[string]any),
+	}
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- s.forwardDeviceEvents(ctx, ws)
+		errCh <- session.forwardDeviceEvents(ctx)
 	}()
 	go func() {
-		errCh <- s.forwardBrowserCommands(ctx, ws, sessionID, app, page, targetID)
+		errCh <- session.forwardBrowserCommands(ctx)
 	}()
 	<-errCh
 }
 
-func (s *CDPServer) forwardDeviceEvents(ctx context.Context, ws *websocket.Conn) error {
+func (s *cdpPageSession) writeJSON(value any) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.ws.WriteJSON(value)
+}
+
+func (s *cdpPageSession) forwardDeviceEvents(ctx context.Context) error {
 	for {
-		event, err := s.client.NextEvent(ctx)
+		event, err := s.server.client.NextEvent(ctx)
 		if err != nil {
 			return err
 		}
 		if dispatch, ok := unwrapDispatchMessage(event); ok {
-			if normalized, drop := normalizeCDPEvent(dispatch); !drop {
-				if err := ws.WriteJSON(normalized); err != nil {
+			if s.resolvePending(dispatch) {
+				continue
+			}
+			if normalized, drop := s.normalizeCDPEvent(dispatch); !drop {
+				if err := s.writeJSON(normalized); err != nil {
 					return err
 				}
 			}
 			continue
 		}
-		if normalized, drop := normalizeCDPEvent(event); !drop {
-			if err := ws.WriteJSON(normalized); err != nil {
+		if normalized, drop := s.normalizeCDPEvent(event); !drop {
+			if err := s.writeJSON(normalized); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (s *CDPServer) forwardBrowserCommands(ctx context.Context, ws *websocket.Conn, sessionID string, app Application, page Page, targetID string) error {
+func (s *cdpPageSession) forwardBrowserCommands(ctx context.Context) error {
 	for {
 		var message map[string]any
-		if err := ws.ReadJSON(&message); err != nil {
+		if err := s.ws.ReadJSON(&message); err != nil {
 			return err
 		}
 		id, _ := numericInt(message["id"])
 
-		if handled, response, extra := localCDPResponse(message, targetID, sessionID, page); handled {
-			if err := ws.WriteJSON(response); err != nil {
+		if handled, response, err := s.handleSpecialCommand(ctx, message); handled {
+			if err != nil {
+				response = cdpError(id, err)
+			}
+			if err := s.writeJSON(response); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if handled, response, extra := localCDPResponse(message, s.targetID, s.sessionID, s.page); handled {
+			if err := s.writeJSON(response); err != nil {
 				return err
 			}
 			for _, event := range extra {
-				if err := ws.WriteJSON(event); err != nil {
+				if err := s.writeJSON(event); err != nil {
 					return err
 				}
 			}
@@ -195,12 +256,12 @@ func (s *CDPServer) forwardBrowserCommands(ctx context.Context, ws *websocket.Co
 		wrapped := map[string]any{
 			"method": "Target.sendMessageToTarget",
 			"params": map[string]any{
-				"targetId": targetID,
+				"targetId": s.targetID,
 				"message":  mustJSON(message),
 			},
 		}
-		if _, err := s.client.SendCommand(ctx, sessionID, app, page, nextWIRID(), "Target.sendMessageToTarget", wrapped["params"].(map[string]any)); err != nil {
-			if writeErr := ws.WriteJSON(cdpError(id, err)); writeErr != nil {
+		if _, err := s.server.client.SendCommand(ctx, s.sessionID, s.app, s.page, nextWIRID(), "Target.sendMessageToTarget", wrapped["params"].(map[string]any)); err != nil {
+			if writeErr := s.writeJSON(cdpError(id, err)); writeErr != nil {
 				return writeErr
 			}
 		}
@@ -243,6 +304,476 @@ func unwrapDispatchMessage(event map[string]any) (map[string]any, bool) {
 		return nil, false
 	}
 	return decoded, true
+}
+
+func (s *cdpPageSession) resolvePending(message map[string]any) bool {
+	id, ok := numericInt(message["id"])
+	if !ok {
+		return false
+	}
+	s.pendingMu.Lock()
+	ch := s.pending[id]
+	s.pendingMu.Unlock()
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- message:
+	default:
+	}
+	return true
+}
+
+func (s *cdpPageSession) sendInner(ctx context.Context, message map[string]any) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	_, err := s.server.client.SendCommand(ctx, s.sessionID, s.app, s.page, nextWIRID(), "Target.sendMessageToTarget", map[string]any{
+		"targetId": s.targetID,
+		"message":  mustJSON(message),
+	})
+	return err
+}
+
+func (s *cdpPageSession) sendInnerWait(ctx context.Context, message map[string]any) (map[string]any, error) {
+	id, ok := numericInt(message["id"])
+	if !ok || id == 0 {
+		id = nextWIRID()
+		message["id"] = id
+	}
+	ch := make(chan map[string]any, 1)
+	s.pendingMu.Lock()
+	s.pending[id] = ch
+	s.pendingMu.Unlock()
+	defer func() {
+		s.pendingMu.Lock()
+		delete(s.pending, id)
+		s.pendingMu.Unlock()
+	}()
+
+	if err := s.sendInner(ctx, message); err != nil {
+		return nil, err
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case response := <-ch:
+		if errValue, ok := response["error"]; ok {
+			return response, fmt.Errorf("cdp inner command error: %v", errValue)
+		}
+		return response, nil
+	}
+}
+
+func (s *cdpPageSession) evaluate(ctx context.Context, id int, expression string, returnByValue bool) (map[string]any, error) {
+	response, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "Runtime.evaluate",
+		"params": map[string]any{
+			"expression":                  expression,
+			"objectGroup":                 "console",
+			"includeCommandLineAPI":       true,
+			"returnByValue":               returnByValue,
+			"generatePreview":             true,
+			"userGesture":                 true,
+			"awaitPromise":                false,
+			"replMode":                    true,
+			"allowUnsafeEvalBlockedByCSP": false,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	result, _ := response["result"].(map[string]any)
+	remote, _ := result["result"].(map[string]any)
+	return remote, nil
+}
+
+func (s *cdpPageSession) handleSpecialCommand(ctx context.Context, message map[string]any) (bool, map[string]any, error) {
+	id, _ := numericInt(message["id"])
+	method, _ := message["method"].(string)
+	params, _ := message["params"].(map[string]any)
+	switch method {
+	case "DOM.getNodeForLocation":
+		response, err := s.domGetNodeForLocation(ctx, id, params)
+		return true, response, err
+	case "DOM.getNodesForSubtreeByStyle":
+		response, err := s.domGetNodesForSubtreeByStyle(ctx, id, params)
+		return true, response, err
+	case "DOMDebugger.getEventListeners":
+		response, err := s.domDebuggerGetEventListeners(ctx, id, params)
+		return true, response, err
+	case "Page.getResourceTree":
+		response, err := s.pageGetResourceTree(ctx, message)
+		return true, response, err
+	case "Page.startScreencast":
+		response, err := s.pageStartScreencast(ctx, id, params)
+		return true, response, err
+	case "Page.stopScreencast":
+		return true, s.pageStopScreencast(id), nil
+	case "Page.screencastFrameAck":
+		return true, s.pageScreencastFrameAck(id, params), nil
+	case "Input.emulateTouchFromMouseEvent":
+		response, err := s.inputEmulateTouchFromMouseEvent(ctx, id, params)
+		return true, response, err
+	case "Input.dispatchKeyEvent":
+		response, err := s.inputDispatchKeyEvent(ctx, id, params)
+		return true, response, err
+	default:
+		return false, nil, nil
+	}
+}
+
+func (s *cdpPageSession) domGetNodeForLocation(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	x, _ := numericInt(params["x"])
+	y, _ := numericInt(params["y"])
+	remote, err := s.evaluate(ctx, id, fmt.Sprintf("document.elementFromPoint(%d,%d)", x, y), false)
+	if err != nil {
+		return nil, err
+	}
+	objectID := stringValue(remote["objectId"])
+	if objectID == "" {
+		return cdpResult(id, map[string]any{}), nil
+	}
+	node, err := s.objectIDToNodeID(ctx, id, objectID)
+	if err != nil {
+		return nil, err
+	}
+	return cdpResult(id, map[string]any{"nodeId": node}), nil
+}
+
+func (s *cdpPageSession) objectIDToNodeID(ctx context.Context, id int, objectID string) (int, error) {
+	response, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "DOM.requestNode",
+		"params": map[string]any{"objectId": objectID},
+	})
+	if err != nil {
+		return 0, err
+	}
+	result, _ := response["result"].(map[string]any)
+	nodeID, _ := numericInt(result["nodeId"])
+	return nodeID, nil
+}
+
+func (s *cdpPageSession) domGetNodesForSubtreeByStyle(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	resolve, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "DOM.resolveNode",
+		"params": map[string]any{"nodeId": params["nodeId"]},
+	})
+	if err != nil {
+		return nil, err
+	}
+	resolveResult, _ := resolve["result"].(map[string]any)
+	object, _ := resolveResult["object"].(map[string]any)
+	objectID := stringValue(object["objectId"])
+	if objectID == "" {
+		return cdpResult(id, map[string]any{"nodeIds": []int{}}), nil
+	}
+	call, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "Runtime.callFunctionOn",
+		"params": map[string]any{
+			"objectId":            objectID,
+			"functionDeclaration": "function(styles) { const result = new Set(); var all = this.getElementsByTagName('*'); for (var elem_i = 0; elem_i < all.length; elem_i++) { for (var style_i in styles) { if (window.getComputedStyle(all[elem_i]).getPropertyValue(styles[style_i].name) === styles[style_i].value) { result.add(all[elem_i]); break; } } } return result; }",
+			"arguments":           []map[string]any{{"value": params["computedStyles"]}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	callResult, _ := call["result"].(map[string]any)
+	remote, _ := callResult["result"].(map[string]any)
+	collectionID := stringValue(remote["objectId"])
+	if collectionID == "" {
+		return cdpResult(id, map[string]any{"nodeIds": []int{}}), nil
+	}
+	entries, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "Runtime.getCollectionEntries",
+		"params": map[string]any{"objectId": collectionID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	entriesResult, _ := entries["result"].(map[string]any)
+	rawEntries, _ := entriesResult["entries"].([]any)
+	nodeIDs := make([]int, 0, len(rawEntries))
+	for _, rawEntry := range rawEntries {
+		entry, _ := rawEntry.(map[string]any)
+		value, _ := entry["value"].(map[string]any)
+		nodeObjectID := stringValue(value["objectId"])
+		if nodeObjectID == "" {
+			continue
+		}
+		nodeID, err := s.objectIDToNodeID(ctx, id, nodeObjectID)
+		if err == nil && nodeID != 0 {
+			nodeIDs = append(nodeIDs, nodeID)
+		}
+	}
+	return cdpResult(id, map[string]any{"nodeIds": nodeIDs}), nil
+}
+
+func (s *cdpPageSession) domDebuggerGetEventListeners(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	objectID := stringValue(params["objectId"])
+	nodeID, err := s.objectIDToNodeID(ctx, id, objectID)
+	if err != nil {
+		return nil, err
+	}
+	response, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "DOM.getEventListenersForNode",
+		"params": map[string]any{"nodeId": nodeID},
+	})
+	if err != nil {
+		return cdpResult(id, map[string]any{"listeners": []map[string]any{}}), nil
+	}
+	result, _ := response["result"].(map[string]any)
+	rawListeners, _ := result["listeners"].([]any)
+	listeners := make([]map[string]any, 0, len(rawListeners))
+	for _, rawListener := range rawListeners {
+		listener, _ := rawListener.(map[string]any)
+		out := map[string]any{
+			"type":       listener["type"],
+			"useCapture": listener["useCapture"],
+			"passive":    boolValue(listener["passive"]),
+			"once":       boolValue(listener["once"]),
+		}
+		if location, _ := listener["location"].(map[string]any); location != nil {
+			out["scriptId"] = location["scriptId"]
+			out["lineNumber"] = location["lineNumber"]
+			out["columnNumber"] = location["columnNumber"]
+		}
+		listeners = append(listeners, out)
+	}
+	return cdpResult(id, map[string]any{"listeners": listeners}), nil
+}
+
+func (s *cdpPageSession) pageGetResourceTree(ctx context.Context, message map[string]any) (map[string]any, error) {
+	response, err := s.sendInnerWait(ctx, message)
+	if err != nil {
+		return nil, err
+	}
+	result, _ := response["result"].(map[string]any)
+	frameTree, _ := result["frameTree"].(map[string]any)
+	s.frame, _ = frameTree["frame"].(map[string]any)
+	return response, nil
+}
+
+func (s *cdpPageSession) pageStartScreencast(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	s.pageStopScreencast(id)
+	format := stringValue(params["format"])
+	if format == "" {
+		format = "jpeg"
+	}
+	quality, _ := numericInt(params["quality"])
+	maxWidth, _ := numericInt(params["maxWidth"])
+	maxHeight, _ := numericInt(params["maxHeight"])
+	if maxWidth == 0 {
+		maxWidth = 1024
+	}
+	if maxHeight == 0 {
+		maxHeight = 768
+	}
+	remote, err := s.evaluate(ctx, id, "(window.innerWidth > 0 ? window.innerWidth : screen.width) + ',' + (window.innerHeight > 0 ? window.innerHeight : screen.height) + ',' + window.devicePixelRatio", true)
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(stringValue(remote["value"]), ",")
+	cast := &cdpScreencast{format: format, quality: quality, maxWidth: maxWidth, maxHeight: maxHeight, frameID: 1, lastAck: 0, scale: 1}
+	if len(parts) == 3 {
+		cast.deviceW = atoi(parts[0])
+		cast.deviceH = atoi(parts[1])
+		cast.scale = float64(atoi(parts[2]))
+		if cast.scale == 0 {
+			cast.scale = 1
+		}
+	}
+	castCtx, cancel := context.WithCancel(ctx)
+	cast.cancelFunc = cancel
+	s.screencast = cast
+	go s.screencastLoop(castCtx, id, cast)
+	return cdpResult(id, map[string]any{}), nil
+}
+
+func (s *cdpPageSession) pageStopScreencast(id int) map[string]any {
+	if s.screencast != nil && s.screencast.cancelFunc != nil {
+		s.screencast.cancelFunc()
+	}
+	s.screencast = nil
+	return cdpResult(id, map[string]any{})
+}
+
+func (s *cdpPageSession) pageScreencastFrameAck(id int, params map[string]any) map[string]any {
+	if s.screencast != nil {
+		ack, _ := numericInt(params["sessionId"])
+		s.screencast.lastAck = ack
+	}
+	return cdpResult(id, map[string]any{})
+}
+
+func (s *cdpPageSession) screencastLoop(ctx context.Context, id int, cast *cdpScreencast) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if cast.frameID > 1 && cast.lastAck < cast.frameID-1 {
+			continue
+		}
+		offsetTop, scrollX, scrollY := s.screencastOffsets(ctx, id)
+		response, err := s.sendInnerWait(ctx, map[string]any{
+			"id":     id,
+			"method": "Page.snapshotRect",
+			"params": map[string]any{
+				"x":                0,
+				"y":                0,
+				"width":            cast.deviceW,
+				"height":           cast.deviceH,
+				"coordinateSystem": "Viewport",
+			},
+		})
+		if err != nil {
+			continue
+		}
+		result, _ := response["result"].(map[string]any)
+		dataURL := stringValue(result["dataURL"])
+		data := dataURL
+		if _, encoded, ok := strings.Cut(dataURL, "base64,"); ok {
+			data = encoded
+		}
+		frameID := cast.frameID
+		cast.frameID++
+		_ = s.writeJSON(map[string]any{
+			"method": "Page.screencastFrame",
+			"params": map[string]any{
+				"data":      data,
+				"sessionId": frameID,
+				"metadata": map[string]any{
+					"pageScaleFactor": cast.scale,
+					"offsetTop":       offsetTop,
+					"deviceWidth":     scaledDimension(cast.deviceW, cast.scale, cast.maxWidth),
+					"deviceHeight":    scaledDimension(cast.deviceH, cast.scale, cast.maxHeight),
+					"scrollOffsetX":   scrollX,
+					"scrollOffsetY":   scrollY,
+					"timestamp":       float64(time.Now().UnixMilli()) / 1000,
+				},
+			},
+		})
+	}
+}
+
+func (s *cdpPageSession) screencastOffsets(ctx context.Context, id int) (int, int, int) {
+	remote, err := s.evaluate(ctx, id, "window.document.body.offsetTop + ',' + window.pageXOffset + ',' + window.pageYOffset", true)
+	if err != nil {
+		return 0, 0, 0
+	}
+	parts := strings.Split(stringValue(remote["value"]), ",")
+	if len(parts) != 3 {
+		return 0, 0, 0
+	}
+	return atoi(parts[0]), atoi(parts[1]), atoi(parts[2])
+}
+
+func (s *cdpPageSession) inputEmulateTouchFromMouseEvent(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	eventType := stringValue(params["type"])
+	scale := 1.0
+	if s.screencast != nil && s.screencast.scale > 0 {
+		scale = s.screencast.scale
+	}
+	x := int(float64(intValue(params["x"])) / scale)
+	y := int(float64(intValue(params["y"])) / scale)
+	switch eventType {
+	case "mouseWheel":
+		deltaX := int(float64(intValue(params["deltaX"])) / scale)
+		deltaY := int(float64(intValue(params["deltaY"])) / scale)
+		_, err := s.evaluate(ctx, id, fmt.Sprintf("window.scrollBy(%d, %d)", -deltaX, -deltaY), true)
+		return cdpResult(id, map[string]any{}), err
+	case "mouseReleased":
+		return cdpResult(id, map[string]any{}), nil
+	default:
+		modifiers, _ := numericInt(params["modifiers"])
+		button := stringValue(params["button"])
+		domType := map[string]string{"mousePressed": "click", "mouseMoved": "mousemove"}[eventType]
+		if domType == "" {
+			domType = "click"
+		}
+		eventParams := map[string]any{
+			"screenX":    x,
+			"screenY":    y,
+			"clientX":    x,
+			"clientY":    y,
+			"altKey":     modifiers&1 != 0,
+			"ctrlKey":    modifiers&2 != 0,
+			"metaKey":    modifiers&4 != 0,
+			"shiftKey":   modifiers&8 != 0,
+			"button":     button,
+			"bubbles":    true,
+			"cancelable": false,
+		}
+		eventJSON := mustJSON(eventParams)
+		script := fmt.Sprintf(`(function(type){ const element = document.elementFromPoint(%d, %d); if (!element) return false; const e = new MouseEvent(type, %s); element.dispatchEvent(e); if (element.focus) element.focus(); return true; })(%s)`, x, y, eventJSON, quoteJS(domType))
+		if _, err := s.evaluate(ctx, id, script, true); err != nil {
+			return nil, err
+		}
+		if domType == "click" {
+			_, _ = s.evaluate(ctx, id, fmt.Sprintf(`(function(){ const element = document.elementFromPoint(%d, %d); if (!element) return false; element.dispatchEvent(new MouseEvent("mouseup", %s)); return true; })()`, x, y, eventJSON), true)
+		}
+		return cdpResult(id, map[string]any{}), nil
+	}
+}
+
+func (s *cdpPageSession) inputDispatchKeyEvent(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	keyType := stringValue(params["type"])
+	key := stringValue(params["key"])
+	text := stringValue(params["text"])
+	var manipulation string
+	switch {
+	case keyType == "keyUp" && key == "Backspace":
+		manipulation = "document.activeElement.value = document.activeElement.value.slice(0, -1);"
+	case keyType == "char" && key == "Enter":
+		manipulation = `var tagName = document.activeElement.tagName.toLowerCase(); if (tagName === "textarea" || document.activeElement.isContentEditable) { document.activeElement.value = document.activeElement.value + "\n"; } else { const result = document.evaluate("./ancestor-or-self::form", document.activeElement, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null); if (result.singleNodeValue) { const e = result.singleNodeValue.ownerDocument.createEvent("Event"); e.initEvent("submit", true, true); if (result.singleNodeValue.dispatchEvent(e)) { result.singleNodeValue.submit(); } } }`
+	case keyType == "char":
+		manipulation = "document.activeElement.value = document.activeElement.value + " + quoteJS(text) + ";"
+	default:
+		return cdpResult(id, map[string]any{}), nil
+	}
+	script := "function isEditable(element) { if (!element || element.disabled || element.readOnly) return false; var tagName = element.tagName.toLowerCase(); if (tagName === 'textarea' || element.isContentEditable) return true; if (tagName !== 'input') return false; switch (element.type) { case 'color': case 'date': case 'datetime-local': case 'email': case 'file': case 'month': case 'number': case 'password': case 'range': case 'search': case 'tel': case 'text': case 'time': case 'url': case 'week': return true; } return false; } if (isEditable(document.activeElement)) { " + manipulation + " }"
+	_, err := s.evaluate(ctx, id, script, true)
+	return cdpResult(id, map[string]any{}), err
+}
+
+func (s *cdpPageSession) normalizeCDPEvent(message map[string]any) (map[string]any, bool) {
+	method, _ := message["method"].(string)
+	if method == "Runtime.executionContextCreated" {
+		params, _ := message["params"].(map[string]any)
+		contextMap, _ := params["context"].(map[string]any)
+		if stringValue(contextMap["type"]) == "normal" {
+			s.defaultExecutionID = contextMap["id"]
+		}
+	}
+	if method == "Target.targetCreated" {
+		params, _ := message["params"].(map[string]any)
+		targetInfo, _ := params["targetInfo"].(map[string]any)
+		s.targetID = stringValue(targetInfo["targetId"])
+		if s.page.URL != "" {
+			targetInfo["url"] = s.page.URL
+		}
+		if s.page.Title != "" {
+			targetInfo["title"] = s.page.Title
+		}
+	}
+	if method == "Target.targetDestroyed" {
+		if s.frame != nil {
+			_ = s.writeJSON(map[string]any{"method": "Page.frameNavigated", "params": map[string]any{"frame": s.frame}})
+			_ = s.writeJSON(map[string]any{"method": "Page.loadEventFired", "params": map[string]any{"timestamp": float64(time.Now().UnixMilli()) / 1000}})
+		}
+		return map[string]any{"method": "DOM.documentUpdated"}, false
+	}
+	return normalizeCDPEvent(message)
 }
 
 func localCDPResponse(message map[string]any, targetID string, sessionID string, page Page) (bool, map[string]any, []map[string]any) {
@@ -525,6 +1056,41 @@ func validNetworkResourceType(resourceType string) bool {
 	default:
 		return false
 	}
+}
+
+func cdpResult(id int, result map[string]any) map[string]any {
+	if result == nil {
+		result = map[string]any{}
+	}
+	return map[string]any{"id": id, "result": result}
+}
+
+func quoteJS(value string) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return `""`
+	}
+	return string(encoded)
+}
+
+func atoi(value string) int {
+	var out int
+	_, _ = fmt.Sscanf(strings.TrimSpace(value), "%d", &out)
+	return out
+}
+
+func scaledDimension(value int, scale float64, maxValue int) int {
+	if value <= 0 {
+		return 0
+	}
+	scaled := int(float64(value) * scale)
+	if maxValue > 0 && scaled > maxValue {
+		return maxValue
+	}
+	if scaled <= 0 {
+		return value
+	}
+	return scaled
 }
 
 func debuggerPausedReason(reason string) string {
