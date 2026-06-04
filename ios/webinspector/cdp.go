@@ -402,6 +402,17 @@ func (s *cdpPageSession) handleSpecialCommand(ctx context.Context, message map[s
 	case "DOMDebugger.getEventListeners":
 		response, err := s.domDebuggerGetEventListeners(ctx, id, params)
 		return true, response, err
+	case "Debugger.setBlackboxPatterns":
+		response, err := s.debuggerSetBlackboxPatterns(ctx, id, params)
+		return true, response, err
+	case "Runtime.compileScript":
+		response, err := s.runtimeCompileScript(ctx, id, params)
+		return true, response, err
+	case "Runtime.getIsolateId":
+		return true, s.runtimeGetIsolateID(id), nil
+	case "Page.getNavigationHistory":
+		response, err := s.pageGetNavigationHistory(ctx, id)
+		return true, response, err
 	case "Page.getResourceTree":
 		response, err := s.pageGetResourceTree(ctx, message)
 		return true, response, err
@@ -547,6 +558,90 @@ func (s *cdpPageSession) domDebuggerGetEventListeners(ctx context.Context, id in
 		listeners = append(listeners, out)
 	}
 	return cdpResult(id, map[string]any{"listeners": listeners}), nil
+}
+
+func (s *cdpPageSession) debuggerSetBlackboxPatterns(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	patterns, _ := params["patterns"].([]any)
+	for _, rawPattern := range patterns {
+		pattern := stringValue(rawPattern)
+		if pattern == "" {
+			continue
+		}
+		_, err := s.sendInnerWait(ctx, map[string]any{
+			"id":     id,
+			"method": "Debugger.setShouldBlackboxURL",
+			"params": map[string]any{"url": pattern, "shouldBlackbox": true},
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return cdpResult(id, map[string]any{}), nil
+}
+
+func (s *cdpPageSession) runtimeCompileScript(ctx context.Context, id int, params map[string]any) (map[string]any, error) {
+	expression := stringValue(params["expression"])
+	response, err := s.sendInnerWait(ctx, map[string]any{
+		"id":     id,
+		"method": "Runtime.parse",
+		"params": map[string]any{"source": expression},
+	})
+	if err != nil {
+		return nil, err
+	}
+	result, _ := response["result"].(map[string]any)
+	if result["result"] == "none" {
+		return cdpResult(id, map[string]any{"result": nil}), nil
+	}
+	parseRange, _ := result["range"].(map[string]any)
+	endOffset, _ := numericInt(parseRange["endOffset"])
+	if endOffset < 0 || endOffset > len(expression) {
+		endOffset = len(expression)
+	}
+	lines := strings.Split(expression[:endOffset], "\n")
+	lineNumber := len(lines) - 1
+	columnNumber := 0
+	if len(lines) > 0 {
+		columnNumber = len(lines[len(lines)-1]) - 1
+		if columnNumber < 0 {
+			columnNumber = 0
+		}
+	}
+	return cdpResult(id, map[string]any{
+		"exceptionDetails": map[string]any{
+			"exceptionId":  1,
+			"text":         result["message"],
+			"lineNumber":   lineNumber,
+			"columnNumber": columnNumber,
+		},
+	}), nil
+}
+
+func (s *cdpPageSession) runtimeGetIsolateID(id int) map[string]any {
+	executionID := s.defaultExecutionID
+	if executionID == nil {
+		executionID = 0
+	}
+	return cdpResult(id, map[string]any{"id": executionID})
+}
+
+func (s *cdpPageSession) pageGetNavigationHistory(ctx context.Context, id int) (map[string]any, error) {
+	href, err := s.evaluate(ctx, id, "window.location.href", true)
+	if err != nil {
+		return nil, err
+	}
+	title, err := s.evaluate(ctx, id, "document.title", true)
+	if err != nil {
+		return nil, err
+	}
+	return cdpResult(id, map[string]any{
+		"currentIndex": 0,
+		"entries": []map[string]any{{
+			"id":    0,
+			"url":   href["value"],
+			"title": title["value"],
+		}},
+	}), nil
 }
 
 func (s *cdpPageSession) pageGetResourceTree(ctx context.Context, message map[string]any) (map[string]any, error) {
@@ -803,12 +898,10 @@ func localCDPResponse(message map[string]any, targetID string, sessionID string,
 		"DOM.enable",
 		"DOMDebugger.setBreakOnCSPViolation",
 		"Debugger.setAsyncCallStackDepth",
-		"Debugger.setBlackboxPatterns",
 		"Emulation.setTouchEmulationEnabled",
 		"Emulation.setFocusEmulationEnabled",
 		"Emulation.setEmulatedVisionDeficiency",
 		"Emulation.setEmitTouchEventsForMouse",
-		"Emulation.setAutoDarkModeOverride",
 		"HeapProfiler.enable",
 		"Input.dispatchKeyEvent",
 		"Input.emulateTouchFromMouseEvent",
@@ -836,11 +929,6 @@ func localCDPResponse(message map[string]any, targetID string, sessionID string,
 		result["nodeIds"] = []int{}
 	case "Network.loadNetworkResource":
 		result["resource"] = map[string]any{"success": true}
-	case "Runtime.getIsolateId":
-		result["id"] = 0
-	case "Page.getNavigationHistory":
-		result["currentIndex"] = 0
-		result["entries"] = []map[string]any{{"id": 0, "url": page.URL, "title": page.Title}}
 	default:
 		return false, nil, nil
 	}
@@ -902,11 +990,6 @@ func translateCDPCommand(message map[string]any) map[string]any {
 				params["options"] = options
 				delete(params, "condition")
 			}
-		}
-	case "Runtime.compileScript":
-		message["method"] = "Runtime.parse"
-		if params != nil {
-			message["params"] = map[string]any{"source": params["expression"]}
 		}
 	}
 	return message

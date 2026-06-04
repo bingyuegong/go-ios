@@ -321,6 +321,12 @@ func (c *Client) AutomationSession(ctx context.Context, app Application) (*Autom
 	if err := c.SetupInspectorSocket(sessionID, app, page, true); err != nil {
 		return nil, err
 	}
+	if err := c.forwardGetListing(app.ID); err != nil {
+		return nil, err
+	}
+	if err := c.waitForAutomationConnection(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	return &AutomationSession{
 		client:    c,
 		app:       app,
@@ -415,6 +421,21 @@ func (c *Client) waitForAutomationPage(ctx context.Context, sessionID string) (P
 		return false
 	})
 	return page, err
+}
+
+func (c *Client) waitForAutomationConnection(ctx context.Context, sessionID string) error {
+	return c.waitFor(ctx, func() bool {
+		c.stateMu.Lock()
+		defer c.stateMu.Unlock()
+		for _, appPages := range c.pages {
+			for _, candidate := range appPages {
+				if candidate.Type == WIRTypeAutomation && candidate.AutomationSessionID == sessionID && candidate.AutomationConnectionID != "" {
+					return true
+				}
+			}
+		}
+		return false
+	})
 }
 
 func (c *Client) readLoop() {

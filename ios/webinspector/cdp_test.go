@@ -3,29 +3,33 @@ package webinspector
 import "testing"
 
 func TestLocalCDPResponse(t *testing.T) {
-	handled, response, extra := localCDPResponse(map[string]any{"id": 4, "method": "Runtime.getIsolateId"}, "target-1", "session-1", Page{})
+	handled, response, extra := localCDPResponse(map[string]any{"id": 4, "method": "CSS.takeComputedStyleUpdates"}, "target-1", "session-1", Page{})
 	if !handled {
-		t.Fatal("expected Runtime.getIsolateId to be handled locally")
+		t.Fatal("expected CSS.takeComputedStyleUpdates to be handled locally")
 	}
 	result := response["result"].(map[string]any)
-	if result["id"] != 0 {
-		t.Fatalf("unexpected isolate id result: %#v", response)
+	nodeIDs := result["nodeIds"].([]int)
+	if len(nodeIDs) != 0 {
+		t.Fatalf("unexpected node id result: %#v", response)
 	}
 	if len(extra) != 0 {
 		t.Fatalf("unexpected extra events: %#v", extra)
 	}
 }
 
-func TestLocalCDPNavigationHistoryUsesPageMetadata(t *testing.T) {
-	page := Page{URL: "https://example.test/", Title: "Example"}
-	handled, response, _ := localCDPResponse(map[string]any{"id": 5, "method": "Page.getNavigationHistory"}, "target-1", "session-1", page)
-	if !handled {
-		t.Fatal("expected Page.getNavigationHistory to be handled locally")
+func TestLocalCDPResponseDoesNotSwallowStatefulCommands(t *testing.T) {
+	statefulMethods := []string{
+		"Debugger.setBlackboxPatterns",
+		"Emulation.setAutoDarkModeOverride",
+		"Page.getNavigationHistory",
+		"Runtime.compileScript",
+		"Runtime.getIsolateId",
 	}
-	result := response["result"].(map[string]any)
-	entries := result["entries"].([]map[string]any)
-	if entries[0]["url"] != page.URL || entries[0]["title"] != page.Title {
-		t.Fatalf("unexpected navigation entry: %#v", entries[0])
+	for _, method := range statefulMethods {
+		handled, _, _ := localCDPResponse(map[string]any{"id": 5, "method": method}, "target-1", "session-1", Page{})
+		if handled {
+			t.Fatalf("%s should be routed through the stateful CDP session", method)
+		}
 	}
 }
 
@@ -60,18 +64,27 @@ func TestTranslateDebuggerBreakpointCondition(t *testing.T) {
 	}
 }
 
-func TestTranslateRuntimeCompileScript(t *testing.T) {
+func TestTranslateEmulationAutoDarkMode(t *testing.T) {
 	message := translateCDPCommand(map[string]any{
 		"id":     3,
-		"method": "Runtime.compileScript",
-		"params": map[string]any{"expression": "let x = 1"},
+		"method": "Emulation.setAutoDarkModeOverride",
+		"params": map[string]any{"enabled": true},
 	})
-	if message["method"] != "Runtime.parse" {
+	if message["method"] != "Page.setForcedAppearance" {
 		t.Fatalf("unexpected method: %#v", message["method"])
 	}
 	params := message["params"].(map[string]any)
-	if params["source"] != "let x = 1" {
+	if params["appearance"] != "Dark" {
 		t.Fatalf("unexpected params: %#v", params)
+	}
+}
+
+func TestRuntimeGetIsolateIDUsesDefaultExecutionContext(t *testing.T) {
+	session := &cdpPageSession{defaultExecutionID: 42}
+	response := session.runtimeGetIsolateID(7)
+	result := response["result"].(map[string]any)
+	if result["id"] != 42 {
+		t.Fatalf("unexpected isolate id result: %#v", response)
 	}
 }
 
