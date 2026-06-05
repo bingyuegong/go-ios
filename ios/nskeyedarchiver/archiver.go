@@ -73,6 +73,9 @@ func archive(object interface{}, objects []interface{}) ([]interface{}, plist.UI
 		return serializeMap(v, objects, buildClassDict("NSDictionary", "NSObject"))
 	}
 	typeOf := reflect.TypeOf(object)
+	if typeOf == nil {
+		return nil, 0, fmt.Errorf("NSKeyedArchiver unsupported object: '%v' of type: %T", object, object)
+	}
 	name := typeOf.Name()
 	// seems like Name() can be empty for pointer types
 	if name == "" {
