@@ -171,6 +171,11 @@ Usage:
   ios ui app foreground [--driver=<driver>] [--devicekit-url=<url>] [options]
   ios ui stream (mjpeg | h264) [--fps=<fps>] [--quality=<quality>] [--scale=<scale>] [--bitrate=<bitrate>] [--driver=<driver>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
   ios uninstall <bundleID> [options]
+  ios webinspector list [--timeout=<seconds>] [options]
+  ios webinspector launch <url> [--bundle-id=<bundleID>] [--timeout=<seconds>] [options]
+  ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [--console-enable] [options]
+  ios webinspector js-shell [<url>] [--bundle-id=<bundleID>] [--open-safari] [--timeout=<seconds>] [--console-enable] [options]
+  ios webinspector cdp [--host=<host>] [--port=<port>] [options]
   ios voiceover (enable | disable | toggle | get) [--force] [options]
   ios zoom (enable | disable | toggle | get) [--force] [options]
 
@@ -510,6 +515,19 @@ The commands work as following:
                                                                     This command needs to be executed with admin privileges.
                                                                     (On MacOS the process 'remoted' must be paused before starting a tunnel,
                                                                     is possible 'sudo pkill -SIGSTOP remoted', and 'sudo pkill -SIGCONT remoted' to resume)
+
+    ios webinspector list [--timeout=<seconds>] [options]           List inspectable Safari/WebView pages.
+
+    ios webinspector launch <url> [--bundle-id=<bundleID>] [--timeout=<seconds>] [options]
+                                                                    Launch Safari or another app and navigate by Remote Automation.
+
+    ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [--console-enable] [options]
+                                                                    Evaluate JavaScript in an inspectable page.
+
+    ios webinspector js-shell [<url>] [--bundle-id=<bundleID>] [--open-safari] [--timeout=<seconds>] [--console-enable] [options]
+                                                                    Start an interactive JavaScript shell for an inspectable page.
+
+    ios webinspector cdp [--host=<host>] [--port=<port>] [options]  Start a Chrome DevTools Protocol bridge.
 
     ios voiceover (enable | disable | toggle | get) [--force] [options] Enables, disables, toggles, or returns the state of the "VoiceOver" software home-screen button.
                                                                     iOS 11+ only (Use --force to try on older versions).
