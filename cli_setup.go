@@ -59,10 +59,25 @@ func configureCLI(arguments docopt.Opts) {
 	} else if verboseLoggingEnabledLong {
 		slog.Info("Set Debug mode")
 	}
-	slog.Debug("parsed arguments", "args", arguments)
+	slog.Debug("parsed arguments", "args", redactArgs(arguments))
 
 	startAgentFromEnvironment()
 	warnIfAgentIsNotRunning()
+}
+
+func redactArgs(arguments docopt.Opts) map[string]interface{} {
+	redacted := make(map[string]interface{}, len(arguments))
+	for key, value := range arguments {
+		switch key {
+		case "--password", "--p12password", "--proxyurl":
+			if value != nil && value != "" {
+				redacted[key] = "<redacted>"
+				continue
+			}
+		}
+		redacted[key] = value
+	}
+	return redacted
 }
 
 func startAgentFromEnvironment() {

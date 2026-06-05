@@ -15,6 +15,13 @@ var preProxyCommands = []command{
 }
 
 var globalCommands = []command{
+	{
+		name: "ui",
+		match: func(args docopt.Opts) bool {
+			return boolArg(args, "ui") && !boolArg(args, "install")
+		},
+		run: runUICommand,
+	},
 	commandByBool("listen", runListenCommand),
 	{
 		name:  "list",

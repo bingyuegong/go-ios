@@ -135,6 +135,8 @@ Usage:
   ios runwda [--bundleid=<bundleid>] [--testrunnerbundleid=<testbundleid>] [--xctestconfig=<xctestconfig>] [--log-output=<file>] [--arg=<a>]... [--env=<e>]... [options]
   ios runxctest [--xctestrun-file-path=<xctestrunFilePath>] [--log-output=<file>] [options]
   ios screenshot [options] [--output=<outfile>] [--stream] [--port=<port>]
+  ios sign provision appstoreconnect --bundleid=<bundleid> --asc-key-id=<keyid> --asc-issuer-id=<issuerid> --asc-private-key=<p8file> --p12-output=<p12file> --profile-output=<mobileprovision> [--p12password=<password>] [--bundle-name=<name>] [--profile-name=<name>] [--device-name=<name>] [options]
+  ios sign app --path=<ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--output=<signedPath>] [--bundleid=<bundleid>] [--install] [options]
   ios setlocation [options] [--lat=<lat>] [--lon=<lon>]
   ios setlocationgpx [options] [--gpxfilepath=<gpxfilepath>]
   ios shutdown [options]
@@ -149,6 +151,25 @@ Usage:
   ios tunnel ls [options]
   ios tunnel start [options] [--pair-record-path=<pairrecordpath>] [--userspace]
   ios tunnel stopagent
+  ios ui install (wda | devicekit) --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--path=<ipaOrZipOrApp>] [--output=<signedPath>] [--bundleid=<bundleid>] [options]
+  ios ui download [(wda | devicekit | all)] [--output=<dir>] [options]
+  ios ui status [--driver=<driver>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui api [--driver=<driver>] [--method=<method>] [--http-path=<path>] [--body=<json>] [--body-file=<file>] [--rpc-method=<method>] [--params=<json>] [--params-file=<file>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui raw [--driver=<driver>] [--method=<method>] [--http-path=<path>] [--body=<json>] [--body-file=<file>] [--rpc-method=<method>] [--params=<json>] [--params-file=<file>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui tap --x=<x> --y=<y> [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui swipe --from-x=<x> --from-y=<y> --to-x=<x> --to-y=<y> [--duration=<seconds>] [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui longpress --x=<x> --y=<y> [--duration=<seconds>] [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui type --text=<text> [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui button <button> [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui screenshot [--output=<outfile>] [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui source [--output=<outfile>] [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui size [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui orientation get [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui orientation set <orientation> [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui app launch <bundleID> [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui app terminate <bundleID> [--driver=<driver>] [--session-id=<sessionid>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
+  ios ui app foreground [--driver=<driver>] [--devicekit-url=<url>] [options]
+  ios ui stream (mjpeg | h264) [--fps=<fps>] [--quality=<quality>] [--scale=<scale>] [--bitrate=<bitrate>] [--driver=<driver>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
   ios uninstall <bundleID> [options]
   ios voiceover (enable | disable | toggle | get) [--force] [options]
   ios zoom (enable | disable | toggle | get) [--force] [options]
@@ -176,6 +197,17 @@ Options:
                             A simple format like: "http://PROXY_LOGIN:PROXY_PASS@proxyIp:proxyPort" works.
                             Otherwise use the HTTP_PROXY system env var.
   --userspace-port=<port>   Optional. Set this if you run a command supplying rsd-port and address and your device is using userspace tunnel
+  --asc-key-id=<keyid>      App Store Connect API key id. Can also be set via GO_IOS_ASC_KEY_ID.
+  --asc-issuer-id=<issuerid>
+                            App Store Connect API issuer id. Can also be set via GO_IOS_ASC_ISSUER_ID.
+  --asc-private-key=<p8file>
+                            App Store Connect API .p8 private key path. Can also be set via GO_IOS_ASC_PRIVATE_KEY.
+  --p12file=<p12file>       P12 identity file path.
+  --profile=<mobileprovision>
+                            Provisioning profile path for app signing.
+  --driver=<driver>         UI automation backend: devicekit, wda, or auto. Defaults to devicekit.
+  --wda-url=<url>           WebDriverAgent base URL. Defaults to http://127.0.0.1:8100 or GO_IOS_WDA_URL.
+  --devicekit-url=<url>     DeviceKit base URL. Defaults to http://127.0.0.1:12004 or GO_IOS_DEVICEKIT_URL.
 
 The commands work as following:
   The default output of all commands is JSON. Should you prefer human readable outout, specify the --nojson option with your command.
@@ -377,6 +409,45 @@ The commands work as following:
                                                                     Takes a screenshot and writes it to the current dir or to <outfile>
                                                                     If --stream is supplied it starts an mjpeg server at 0.0.0.0:3333.
                                                                     Use --port to set another port.
+
+    ios sign provision appstoreconnect --bundleid=<bundleid> --asc-key-id=<keyid> --asc-issuer-id=<issuerid> --asc-private-key=<p8file> --p12-output=<p12file> --profile-output=<mobileprovision>
+                                                                    Creates an iOS development signing certificate, P12, and provisioning profile through App Store Connect.
+                                                                    This command does not sign an app.
+
+    ios sign app --path=<ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision>
+                                                                    Resigns the IPA or .app with go-codesign using local signing files,
+                                                                    and optionally installs the signed result with --install.
+                                                                    For WDA or DeviceKit artifacts, run "ios ui download" first and pass the downloaded path with --path.
+
+    ios ui install (wda | devicekit) --p12file=<p12file> --profile=<mobileprovision>
+                                                                    Downloads the default DeviceKit or WDA artifact from deviceboxhq.com unless --path is provided,
+                                                                    signs it with local signing files, and installs it on the selected device.
+                                                                    Run "ios ui download" to pre-download artifacts, or pass --path to use your own local build.
+
+    ios ui download [(wda | devicekit | all)] [--output=<dir>]       Downloads default WDA and/or DeviceKit artifacts from deviceboxhq.com,
+                                                                    extracts zip artifacts, and prints JSON describing the files.
+                                                                    Use the printed artifactPath or appPath with "ios ui install --path" or "ios sign app --path".
+
+    ios ui status [--driver=<driver>]                                Checks the configured UI automation backend. Defaults to DeviceKit.
+
+    ios ui api [--driver=<driver>]                                    Calls a backend-specific API directly.
+                                                                    For WDA, pass --http-path=<path>, optionally --method=<method> and --body=<json>.
+                                                                    For DeviceKit, pass --rpc-method=<method>, optionally --params=<json>.
+                                                                    Use --driver=auto to probe DeviceKit first, then WDA.
+                                                                    "raw" is accepted as an alias for "api".
+
+    ios ui tap --x=<x> --y=<y>                                       Taps at screen coordinates.
+    ios ui swipe --from-x=<x> --from-y=<y> --to-x=<x> --to-y=<y>     Swipes between screen coordinates.
+    ios ui longpress --x=<x> --y=<y> [--duration=<seconds>]          Long-presses at screen coordinates.
+    ios ui type --text=<text>                                        Types text.
+    ios ui button <button>                                           Presses a button. DeviceKit supports more buttons; WDA supports home.
+    ios ui screenshot [--output=<outfile>]                           Saves a screenshot, or writes PNG bytes to stdout.
+    ios ui source [--output=<outfile>]                               Dumps the UI hierarchy.
+    ios ui size                                                      Prints screen or window size information.
+    ios ui orientation (get | set <orientation>)                     Gets or sets orientation.
+    ios ui app (launch | terminate) <bundleID>                       Launches or terminates an app.
+    ios ui app foreground                                            Prints the foreground app through DeviceKit.
+    ios ui stream (mjpeg | h264)                                     Streams video to stdout. H264 requires DeviceKit; WDA supports MJPEG.
 
     ios setlocation [options] [--lat=<lat>] [--lon=<lon>]           Updates the location of the device to the provided by latitude and longitude coordinates.
                                                                     Ex.: setlocation --lat=40.730610 --lon=-73.935242

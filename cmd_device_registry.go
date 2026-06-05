@@ -1,11 +1,27 @@
 package main
 
+import "github.com/docopt/docopt-go"
+
 var deviceCommands = []command{
 	commandByBool("activate", runActivateCommand),
 	commandByBool("ip", runIPCommand),
 	commandByBool("pcap", runPCAPCommand),
 	commandByBool("ps", runPSCommand),
-	commandByBool("install", runInstallCommand),
+	{
+		name: "install",
+		match: func(args docopt.Opts) bool {
+			return boolArg(args, "install") && !boolArg(args, "ui")
+		},
+		run: runInstallCommand,
+	},
+	commandByBool("sign", runSignCommand),
+	{
+		name: "ui install",
+		match: func(args docopt.Opts) bool {
+			return boolArg(args, "ui") && boolArg(args, "install")
+		},
+		run: runUIInstallCommand,
+	},
 	commandByBool("uninstall", runUninstallCommand),
 	commandByBool("lang", runLangCommand),
 	commandByBool("dproxy", runDproxyCommand),
