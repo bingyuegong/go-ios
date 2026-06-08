@@ -18,7 +18,7 @@ const (
 
 var (
 	decodableClasses map[string]func(map[string]interface{}, []interface{}) interface{}
-	encodableClasses map[string]func(object interface{}, objects []interface{}) ([]interface{}, plist.UID)
+	encodableClasses map[string]func(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error)
 )
 
 var testIdentifierRegex = regexp.MustCompile(`((?P<module>[^\.]+)\.)?(?P<class>[^\/]+)(\/(?P<method>[^\.]+))?`)
@@ -55,7 +55,7 @@ func SetupDecoders() {
 
 func SetupEncoders() {
 	if encodableClasses == nil {
-		encodableClasses = map[string]func(object interface{}, objects []interface{}) ([]interface{}, plist.UID){
+		encodableClasses = map[string]func(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error){
 			"XCTestConfiguration":  archiveXcTestConfiguration,
 			"NSUUID":               archiveNSUUID,
 			"NSURL":                archiveNSURL,
@@ -223,7 +223,7 @@ func createTestsSet(tests []string) NSSet {
 	return NSSet{Objects: toInterfaceSlice(tests)}
 }
 
-func archiveXcTestConfiguration(xctestconfigInterface interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveXcTestConfiguration(xctestconfigInterface interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	xctestconfig := xctestconfigInterface.(XCTestConfiguration)
 	xcconfigRef := plist.UID(len(objects))
 	objects = append(objects, xctestconfig.contents)
@@ -243,12 +243,16 @@ func archiveXcTestConfiguration(xctestconfigInterface interface{}, objects []int
 				continue // No need to archive NSNull
 			}
 			var ref plist.UID
-			objects, ref = archive(xctestconfig.contents[key], objects)
+			var err error
+			objects, ref, err = archive(xctestconfig.contents[key], objects)
+			if err != nil {
+				return nil, 0, err
+			}
 			xctestconfig.contents[key] = ref
 		}
 	}
 
-	return objects, xcconfigRef
+	return objects, xcconfigRef, nil
 }
 
 type NSUUID struct {
@@ -378,7 +382,7 @@ func NewNSUUID(id uuid.UUID) NSUUID {
 	return NSUUID{bytes}
 }
 
-func archiveNSUUID(uid interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSUUID(uid interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	nsuuid := uid.(NSUUID)
 	object := map[string]interface{}{}
 
@@ -390,14 +394,17 @@ func archiveNSUUID(uid interface{}, objects []interface{}) ([]interface{}, plist
 	object[class] = plist.UID(classref)
 	objects = append(objects, buildClassDict("NSUUID", "NSObject"))
 
-	return objects, plist.UID(uuidReference)
+	return objects, plist.UID(uuidReference), nil
 }
 
-func archiveXCTCapabilities(capsIface interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveXCTCapabilities(capsIface interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	caps := capsIface.(XCTCapabilities)
 	object := map[string]interface{}{}
 
-	objects, dictRef := serializeMap(caps.CapabilitiesDictionary, objects, buildClassDict("NSDictionary", "NSObject"))
+	objects, dictRef, err := serializeMap(caps.CapabilitiesDictionary, objects, buildClassDict("NSDictionary", "NSObject"))
+	if err != nil {
+		return nil, 0, err
+	}
 	object["capabilities-dictionary"] = dictRef
 
 	capsReference := len(objects)
@@ -406,7 +413,7 @@ func archiveXCTCapabilities(capsIface interface{}, objects []interface{}) ([]int
 	classref := capsReference + 1
 	object[class] = plist.UID(classref)
 	objects = append(objects, buildClassDict("XCTCapabilities", "NSObject"))
-	return objects, plist.UID(capsReference)
+	return objects, plist.UID(capsReference), nil
 }
 
 type NSURL struct {
@@ -417,7 +424,7 @@ func NewNSURL(path string) NSURL {
 	return NSURL{path}
 }
 
-func archiveNSURL(nsurlInterface interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSURL(nsurlInterface interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	nsurl := nsurlInterface.(NSURL)
 	object := map[string]interface{}{}
 
@@ -434,7 +441,7 @@ func archiveNSURL(nsurlInterface interface{}, objects []interface{}) ([]interfac
 	object["NS.relative"] = plist.UID(pathRef)
 	objects = append(objects, fmt.Sprintf("file://%s", nsurl.Path))
 
-	return objects, plist.UID(urlReference)
+	return objects, plist.UID(urlReference), nil
 }
 
 type DTActivityTraceTapMessage struct {
@@ -477,7 +484,7 @@ type NSValuePoint struct {
 
 func NewNSValuePoint(x, y float64) NSValuePoint { return NSValuePoint{X: x, Y: y} }
 
-func archiveNSValuePoint(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSValuePoint(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	p := object.(NSValuePoint)
 
 	// Create the NSValue dictionary object
@@ -498,7 +505,7 @@ func archiveNSValuePoint(object interface{}, objects []interface{}) ([]interface
 	dict["NS.pointval"] = plist.UID(pointStrIdx)
 	dict["NS.special"] = uint64(1)
 
-	return objects, plist.UID(dictIdx)
+	return objects, plist.UID(dictIdx), nil
 }
 
 type NSArray struct {
@@ -514,7 +521,7 @@ func NewNSArray(object map[string]interface{}, objects []interface{}) interface{
 	return NSArray{Values: extractObjects}
 }
 
-func archiveNSArray(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSArray(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	sl := object.(NSArray)
 	return serializeArray(sl.Values, objects)
 }
@@ -544,13 +551,16 @@ func NewXCTTestIdentifier(object map[string]interface{}, objects []interface{}) 
 	}
 }
 
-func archiveXCTTestIdentifier(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveXCTTestIdentifier(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	testIdentifier := object.(XCTTestIdentifier)
 
 	classRef := len(objects)
 	objects = append(objects, buildClassDict("XCTTestIdentifier", "NSObject"))
 
-	objects, cRef := serializeArray(toInterfaceSlice(testIdentifier.C), objects)
+	objects, cRef, err := serializeArray(toInterfaceSlice(testIdentifier.C), objects)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	identifierMap := map[string]interface{}{}
 	identifierMap["c"] = cRef
@@ -559,17 +569,20 @@ func archiveXCTTestIdentifier(object interface{}, objects []interface{}) ([]inte
 	ref := len(objects)
 	objects = append(objects, identifierMap)
 
-	return objects, plist.UID(ref)
+	return objects, plist.UID(ref), nil
 }
 
 type XCTTestIdentifierSet struct {
 	Identifiers NSMutableArray
 }
 
-func archiveXCTTestIdentifierSet(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveXCTTestIdentifierSet(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	identifierSet := object.(XCTTestIdentifierSet)
 
-	objects, arrayRef := archiveNSMutableArray(identifierSet.Identifiers, objects)
+	objects, arrayRef, err := archiveNSMutableArray(identifierSet.Identifiers, objects)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	identifierSetMap := map[string]interface{}{}
 	ref := len(objects)
@@ -580,7 +593,7 @@ func archiveXCTTestIdentifierSet(object interface{}, objects []interface{}) ([]i
 	objects = append(objects, buildClassDict("XCTTestIdentifierSet", "NSObject"))
 	identifierSetMap[class] = plist.UID(classRef)
 
-	return objects, plist.UID(ref)
+	return objects, plist.UID(ref), nil
 }
 
 // TODO: make this nice, partially extracting objects is not really cool
@@ -706,13 +719,13 @@ func NewNSNull() interface{} {
 	return NSNull{"NSNull"}
 }
 
-func archiveNSNull(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSNull(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	nsnull := map[string]interface{}{}
 	nsnullReference := len(objects)
 	objects = append(objects, nsnull)
 	objects = append(objects, buildClassDict("NSNull", "NSObject"))
 	nsnull[class] = plist.UID(nsnullReference + 1)
-	return objects, plist.UID(nsnullReference)
+	return objects, plist.UID(nsnullReference), nil
 }
 
 type NSMutableDictionary struct {
@@ -723,12 +736,12 @@ func NewNSMutableDictionary(internalDict map[string]interface{}) interface{} {
 	return NSMutableDictionary{internalDict}
 }
 
-func archiveStringSlice(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveStringSlice(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	sl := object.([]string)
 	return serializeArray(toInterfaceSlice(sl), objects)
 }
 
-func archiveNSMutableDictionary(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSMutableDictionary(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	mut := object.(NSMutableDictionary)
 	return serializeMap(mut.internalDict, objects, buildClassDict("NSMutableDictionary", "NSDictionary", "NSObject"))
 }
@@ -737,7 +750,7 @@ type NSMutableArray struct {
 	Values []interface{}
 }
 
-func archiveNSMutableArray(object interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSMutableArray(object interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	sl := object.(NSMutableArray)
 	return serializeMutableArray(sl.Values, objects)
 }
@@ -746,7 +759,7 @@ type NSSet struct {
 	Objects []interface{}
 }
 
-func archiveNSSet(set interface{}, objects []interface{}) ([]interface{}, plist.UID) {
+func archiveNSSet(set interface{}, objects []interface{}) ([]interface{}, plist.UID, error) {
 	nsset := set.(NSSet)
 	return serializeSet(nsset.Objects, objects)
 }
