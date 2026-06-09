@@ -79,7 +79,7 @@ func connectionAccept(cl *ConnListener, deviceID int, phonePort uint16) {
 				golog.Error("error accepting new connection", "module", logModule, "deviceID", deviceID, "phonePort", phonePort, "error", err)
 				continue
 			}
-			golog.Info("new client connected", "module", logModule, "deviceID", deviceID, "phonePort", phonePort, "conn", fmt.Sprintf("%#v", cl))
+			golog.Debug("new client connected", "module", logModule, "deviceID", deviceID, "phonePort", phonePort, "conn", fmt.Sprintf("%#v", cl))
 			go StartNewProxyConnection(context.TODO(), clientConn, deviceID, phonePort)
 		}
 	}
@@ -98,7 +98,7 @@ func StartNewProxyConnection(ctx context.Context, clientConn io.ReadWriteCloser,
 		clientConn.Close()
 		return fmt.Errorf("could not connect to port:%d on iOS: %v", phonePort, err)
 	}
-	golog.Info("connected to port", "module", logModule, "deviceID", deviceID, "conn", fmt.Sprintf("%#v", clientConn), "phonePort", phonePort)
+	golog.Debug("connected to port", "module", logModule, "deviceID", deviceID, "conn", fmt.Sprintf("%#v", clientConn), "phonePort", phonePort)
 	deviceConn := usbmuxConn.ReleaseDeviceConnection()
 
 	proxyConns(ctx, clientConn, deviceConn, deviceID, phonePort)
