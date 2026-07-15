@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/amfi"
-	"github.com/danielpaulus/go-ios/ios/diagnostics"
-	"github.com/danielpaulus/go-ios/ios/imagemounter"
-	"github.com/danielpaulus/go-ios/ios/mcinstall"
-	"github.com/danielpaulus/go-ios/ios/mobileactivation"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/amfi"
+	"github.com/bingyuegong/go-ios/ios/diagnostics"
+	"github.com/bingyuegong/go-ios/ios/imagemounter"
+	"github.com/bingyuegong/go-ios/ios/mcinstall"
+	"github.com/bingyuegong/go-ios/ios/mobileactivation"
 )
 
 func runActivateCommand(ctx commandContext) {

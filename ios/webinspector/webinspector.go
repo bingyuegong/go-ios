@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/notificationproxy"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/notificationproxy"
 	"github.com/google/uuid"
 )
 

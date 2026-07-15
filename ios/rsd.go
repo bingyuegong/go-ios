@@ -7,9 +7,9 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/http"
-	"github.com/danielpaulus/go-ios/ios/xpc"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/http"
+	"github.com/bingyuegong/go-ios/ios/xpc"
 )
 
 // RsdPortProvider is an interface to get a port for a service, or a service for a port from the Remote Service Discovery on the device.

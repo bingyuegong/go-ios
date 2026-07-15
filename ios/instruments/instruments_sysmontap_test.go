@@ -3,7 +3,7 @@ package instruments
 import (
 	"testing"
 
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

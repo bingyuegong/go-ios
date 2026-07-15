@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/crypto/pkcs12"
 
-	ios "github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
+	ios "github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 const logModule = "go-ios/mcinstall"

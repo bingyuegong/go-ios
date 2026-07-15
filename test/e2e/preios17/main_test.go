@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielpaulus/go-ios/test/e2e/harness"
+	"github.com/bingyuegong/go-ios/test/e2e/harness"
 )
 
 // Like the tunnel suite, mount the developer disk image up front: the

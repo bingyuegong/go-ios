@@ -6,10 +6,10 @@ import (
 	"os"
 	"path"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/installationproxy"
-	"github.com/danielpaulus/go-ios/ios/instruments"
-	"github.com/danielpaulus/go-ios/ios/zipconduit"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/installationproxy"
+	"github.com/bingyuegong/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/zipconduit"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

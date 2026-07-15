@@ -14,7 +14,7 @@ import (
 
 	"github.com/Masterminds/semver"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 	plist "howett.net/plist"
 )
 

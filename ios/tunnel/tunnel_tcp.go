@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/http"
-	"github.com/danielpaulus/go-ios/ios/tunnel/tlspsk"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/http"
+	"github.com/bingyuegong/go-ios/ios/tunnel/tlspsk"
 )
 
 // ManualPairAndConnectToTunnelTCP establishes a tunnel over the TLS-PSK TCP

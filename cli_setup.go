@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/tunnel"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/tunnel"
 	"github.com/docopt/docopt-go"
 )
 

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/danielpaulus/go-ios/test/e2e/harness"
+	"github.com/bingyuegong/go-ios/test/e2e/harness"
 )
 
 // The tunnel suite mounts the developer disk image up front: CoreDevice

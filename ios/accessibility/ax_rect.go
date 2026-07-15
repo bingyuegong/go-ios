@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 var rectNumRe = regexp.MustCompile(`-?\d+(?:\.\d+)?`)

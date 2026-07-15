@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 type stubDeviceLister struct{ list ios.DeviceList }

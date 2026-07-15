@@ -3,8 +3,8 @@ package dtx_test
 import (
 	"testing"
 
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 	"github.com/stretchr/testify/assert"
 )
 

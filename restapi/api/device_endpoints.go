@@ -8,14 +8,14 @@ import (
 	"os"
 	"sync"
 
-	"github.com/danielpaulus/go-ios/ios/imagemounter"
-	"github.com/danielpaulus/go-ios/ios/mobileactivation"
+	"github.com/bingyuegong/go-ios/ios/imagemounter"
+	"github.com/bingyuegong/go-ios/ios/mobileactivation"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/accessibility"
-	"github.com/danielpaulus/go-ios/ios/instruments"
-	"github.com/danielpaulus/go-ios/ios/mcinstall"
-	"github.com/danielpaulus/go-ios/ios/simlocation"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/accessibility"
+	"github.com/bingyuegong/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/mcinstall"
+	"github.com/bingyuegong/go-ios/ios/simlocation"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 )

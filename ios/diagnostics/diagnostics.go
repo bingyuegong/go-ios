@@ -3,7 +3,7 @@ package diagnostics
 import (
 	"fmt"
 
-	ios "github.com/danielpaulus/go-ios/ios"
+	ios "github.com/bingyuegong/go-ios/ios"
 )
 
 const serviceName = "com.apple.mobile.diagnostics_relay"

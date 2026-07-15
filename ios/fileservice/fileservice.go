@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/xpc"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/xpc"
 	"github.com/google/uuid"
 )
 

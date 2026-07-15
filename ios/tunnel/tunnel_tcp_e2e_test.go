@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 // TestTCPPSKTunnelE2E exercises the TLS-PSK TCP tunnel transport against a real

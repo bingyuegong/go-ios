@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 // Erase tells a device to remove all apps and settings. You need to activate it afterwards.

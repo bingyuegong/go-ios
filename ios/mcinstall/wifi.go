@@ -6,9 +6,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/mobileactivation"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/mobileactivation"
 )
 
 func PrepareWifi(device ios.DeviceEntry, ssid string, psw string, encType string) error {

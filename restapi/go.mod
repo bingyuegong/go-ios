@@ -1,11 +1,11 @@
-module github.com/danielpaulus/go-ios/restapi
+module github.com/bingyuegong/go-ios/restapi
 
 go 1.26.0
 
 toolchain go1.26.4
 
 require (
-	github.com/danielpaulus/go-ios v1.0.91
+github.com/bingyuegong/go-ios v1.0.91
 	github.com/gin-gonic/gin v1.8.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.8.0
@@ -79,4 +79,4 @@ require (
 	software.sslmate.com/src/go-pkcs12 v0.2.0 // indirect
 )
 
-replace github.com/danielpaulus/go-ios => ../
+replace github.com/bingyuegong/go-ios => ../

@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios/webinspector"
+	"github.com/bingyuegong/go-ios/ios/webinspector"
 	"github.com/google/uuid"
 )
 

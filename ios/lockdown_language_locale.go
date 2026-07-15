@@ -1,6 +1,6 @@
 package ios
 
-import "github.com/danielpaulus/go-ios/ios/golog"
+import "github.com/bingyuegong/go-ios/ios/golog"
 
 // LanguageConfiguration is a simple struct encapsulating a language and locale string
 type LanguageConfiguration struct {

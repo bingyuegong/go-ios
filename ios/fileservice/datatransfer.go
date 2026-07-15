@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 // sendRawData sends raw bytes through the raw connection

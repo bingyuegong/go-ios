@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 	"github.com/google/uuid"
 )
 

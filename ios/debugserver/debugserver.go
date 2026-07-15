@@ -12,9 +12,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/installationproxy"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/installationproxy"
 	"howett.net/plist"
 )
 

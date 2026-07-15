@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/danielpaulus/go-ios/ios"
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 const logModule = "go-ios/instruments"

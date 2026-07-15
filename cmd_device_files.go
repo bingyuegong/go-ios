@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/afc"
-	"github.com/danielpaulus/go-ios/ios/fileservice"
-	"github.com/danielpaulus/go-ios/ios/house_arrest"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/afc"
+	"github.com/bingyuegong/go-ios/ios/fileservice"
+	"github.com/bingyuegong/go-ios/ios/house_arrest"
 )
 
 func runForwardCommand(ctx commandContext) {

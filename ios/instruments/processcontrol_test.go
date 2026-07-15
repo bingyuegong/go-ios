@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 // stubSleep replaces the retry sleep with a no-op that records the backoffs, so

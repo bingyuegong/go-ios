@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/danielpaulus/go-ios/ios/installationproxy"
-	"github.com/danielpaulus/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/installationproxy"
+	"github.com/bingyuegong/go-ios/ios/instruments"
 )
 
 func runPSCommand(ctx commandContext) {

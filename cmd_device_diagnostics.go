@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/afc"
-	"github.com/danielpaulus/go-ios/ios/deviceinfo"
-	"github.com/danielpaulus/go-ios/ios/diagnostics"
-	"github.com/danielpaulus/go-ios/ios/instruments"
-	"github.com/danielpaulus/go-ios/ios/pcap"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/afc"
+	"github.com/bingyuegong/go-ios/ios/deviceinfo"
+	"github.com/bingyuegong/go-ios/ios/diagnostics"
+	"github.com/bingyuegong/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/pcap"
 )
 
 func runIPCommand(ctx commandContext) {

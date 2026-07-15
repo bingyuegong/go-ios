@@ -1,6 +1,6 @@
 package diagnostics
 
-import ios "github.com/danielpaulus/go-ios/ios"
+import ios "github.com/bingyuegong/go-ios/ios"
 
 type ioregistryRequest struct {
 	reqMap map[string]string

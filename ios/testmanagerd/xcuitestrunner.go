@@ -11,15 +11,15 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver"
-	"github.com/danielpaulus/go-ios/ios/afc"
-	"github.com/danielpaulus/go-ios/ios/appservice"
-	"github.com/danielpaulus/go-ios/ios/house_arrest"
+	"github.com/bingyuegong/go-ios/ios/afc"
+	"github.com/bingyuegong/go-ios/ios/appservice"
+	"github.com/bingyuegong/go-ios/ios/house_arrest"
 
-	"github.com/danielpaulus/go-ios/ios"
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/installationproxy"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/installationproxy"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 	"github.com/google/uuid"
 )
 

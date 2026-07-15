@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
-	archiver "github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
+	archiver "github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 // PrimitiveDictionary contains a custom dictionary type

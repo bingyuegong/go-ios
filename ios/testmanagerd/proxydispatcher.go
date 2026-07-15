@@ -5,9 +5,9 @@ import (
 	"runtime/debug"
 	"strings"
 
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 type proxyDispatcher struct {

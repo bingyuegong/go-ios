@@ -7,7 +7,7 @@ import (
 	"io"
 	"net"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 	"github.com/google/uuid"
 )
 

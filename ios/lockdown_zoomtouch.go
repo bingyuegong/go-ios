@@ -3,7 +3,7 @@ package ios
 import (
 	"fmt"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 const zoomTouchKey = "ZoomTouchEnabledByiTunes"

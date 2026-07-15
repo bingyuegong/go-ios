@@ -9,7 +9,7 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 // PlistCodec is a codec for PLIST based services with [4 byte big endian length][plist-payload] based messages

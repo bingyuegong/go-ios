@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
-	archiver "github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
+	archiver "github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )

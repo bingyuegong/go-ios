@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver"
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 const serviceName string = "com.apple.mobile.mobile_image_mounter"

@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/danielpaulus/go-ios/ios/crashreport"
-	"github.com/danielpaulus/go-ios/ios/debugserver"
-	"github.com/danielpaulus/go-ios/ios/imagemounter"
-	"github.com/danielpaulus/go-ios/ios/instruments"
-	"github.com/danielpaulus/go-ios/ios/ostrace"
-	"github.com/danielpaulus/go-ios/ios/pcap"
+	"github.com/bingyuegong/go-ios/ios/crashreport"
+	"github.com/bingyuegong/go-ios/ios/debugserver"
+	"github.com/bingyuegong/go-ios/ios/imagemounter"
+	"github.com/bingyuegong/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/ostrace"
+	"github.com/bingyuegong/go-ios/ios/pcap"
 )
 
 func runPCAPCommand(ctx commandContext) {

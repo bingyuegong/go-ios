@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 	"golang.org/x/exp/slices"
 )
 

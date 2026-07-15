@@ -3,7 +3,7 @@ package springboard
 import (
 	"fmt"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 // Client is a connection to the `com.apple.springboardservices` service on the device

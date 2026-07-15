@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 	"github.com/gin-gonic/gin"
 )
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver"
-	"github.com/danielpaulus/go-ios/test/e2e/harness"
+	"github.com/bingyuegong/go-ios/test/e2e/harness"
 )
 
 func TestMain(m *testing.M) { harness.Main(m) }

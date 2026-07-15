@@ -3,8 +3,8 @@ package accessibility
 import (
 	"encoding/base64"
 
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 // responseValues collects the decoded values carried by a DTX reply, looking in

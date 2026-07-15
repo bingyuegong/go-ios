@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	ios "github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
+	ios "github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
 	"howett.net/plist"
 )
 

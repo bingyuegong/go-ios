@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 func runAssistiveTouchCommand(ctx commandContext) {

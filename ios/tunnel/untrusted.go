@@ -12,9 +12,9 @@ import (
 
 	"io"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/opack"
-	"github.com/danielpaulus/go-ios/ios/xpc"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/opack"
+	"github.com/bingyuegong/go-ios/ios/xpc"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/ed25519"

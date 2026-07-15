@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/restapi/api"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/restapi/api"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )

@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 // createSysProcAttr returns attributes for spawning the go-ios agent as a

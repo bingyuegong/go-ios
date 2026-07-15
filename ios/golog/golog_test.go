@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 // TestSourceReportsCallerNotWrapper is the regression test for the seam: with

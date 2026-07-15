@@ -3,7 +3,7 @@ package ios
 import (
 	"log/slog"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 // LevelTrace is the slog level go-ios uses for its most verbose logs (below

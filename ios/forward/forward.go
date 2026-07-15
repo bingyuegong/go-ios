@@ -8,8 +8,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 const logModule = "go-ios/forward"

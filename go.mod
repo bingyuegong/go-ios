@@ -1,4 +1,4 @@
-module github.com/danielpaulus/go-ios
+module github.com/bingyuegong/go-ios
 
 go 1.26.0
 

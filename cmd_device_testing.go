@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/danielpaulus/go-ios/ios/testmanagerd"
+	"github.com/bingyuegong/go-ios/ios/testmanagerd"
 )
 
 func runTestCommand(ctx commandContext) {

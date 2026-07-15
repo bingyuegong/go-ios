@@ -3,7 +3,7 @@ package ios
 import (
 	"net"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/golog"
 )
 
 // Lockdownport is the port of the always running lockdownd on the iOS device.

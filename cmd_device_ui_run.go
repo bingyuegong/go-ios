@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios/forward"
-	"github.com/danielpaulus/go-ios/ios/testmanagerd"
+	"github.com/bingyuegong/go-ios/ios/forward"
+	"github.com/bingyuegong/go-ios/ios/testmanagerd"
 )
 
 type uiRunTarget struct {

@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 // TestExtractIssues covers parsing the AXAuditIssue_v1 maps the device delivers in

@@ -2,7 +2,7 @@ package ios_test
 
 /*
 import (
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 	"io"
 	"testing"
 

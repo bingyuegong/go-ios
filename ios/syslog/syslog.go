@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 const (

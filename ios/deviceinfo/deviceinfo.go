@@ -3,9 +3,9 @@ package deviceinfo
 import (
 	"fmt"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/coredevice"
-	"github.com/danielpaulus/go-ios/ios/xpc"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/coredevice"
+	"github.com/bingyuegong/go-ios/ios/xpc"
 	"github.com/google/uuid"
 )
 

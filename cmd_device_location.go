@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/danielpaulus/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/instruments"
 )
 
 func runResetLocationCommand(ctx commandContext) {

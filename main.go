@@ -24,26 +24,26 @@ import (
 	"golang.org/x/crypto/pkcs12"
 	"golang.org/x/term"
 
-	"github.com/danielpaulus/go-ios/internal/clihelp"
-	"github.com/danielpaulus/go-ios/ios/debugproxy"
-	"github.com/danielpaulus/go-ios/ios/tunnel"
+	"github.com/bingyuegong/go-ios/internal/clihelp"
+	"github.com/bingyuegong/go-ios/ios/debugproxy"
+	"github.com/bingyuegong/go-ios/ios/tunnel"
 
-	"github.com/danielpaulus/go-ios/ios/imagemounter"
-	"github.com/danielpaulus/go-ios/ios/zipconduit"
+	"github.com/bingyuegong/go-ios/ios/imagemounter"
+	"github.com/bingyuegong/go-ios/ios/zipconduit"
 
-	"github.com/danielpaulus/go-ios/ios/simlocation"
+	"github.com/bingyuegong/go-ios/ios/simlocation"
 
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/accessibility"
-	"github.com/danielpaulus/go-ios/ios/diagnostics"
-	"github.com/danielpaulus/go-ios/ios/forward"
-	"github.com/danielpaulus/go-ios/ios/installationproxy"
-	"github.com/danielpaulus/go-ios/ios/instruments"
-	"github.com/danielpaulus/go-ios/ios/mcinstall"
-	"github.com/danielpaulus/go-ios/ios/notificationproxy"
-	"github.com/danielpaulus/go-ios/ios/ostrace"
-	"github.com/danielpaulus/go-ios/ios/springboard"
-	syslog "github.com/danielpaulus/go-ios/ios/syslog"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/accessibility"
+	"github.com/bingyuegong/go-ios/ios/diagnostics"
+	"github.com/bingyuegong/go-ios/ios/forward"
+	"github.com/bingyuegong/go-ios/ios/installationproxy"
+	"github.com/bingyuegong/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/mcinstall"
+	"github.com/bingyuegong/go-ios/ios/notificationproxy"
+	"github.com/bingyuegong/go-ios/ios/ostrace"
+	"github.com/bingyuegong/go-ios/ios/springboard"
+	syslog "github.com/bingyuegong/go-ios/ios/syslog"
 	"github.com/docopt/docopt-go"
 )
 
@@ -536,7 +536,7 @@ The commands work as following:
                                                                     WARNING: macOS 26 (Tahoe) and newer block that path for third-party binaries via TCC
                                                                     ('operation not permitted'). On those systems do NOT use '=default'; pass a stable
                                                                     writable directory instead (e.g. --pair-record-path=/Users/Shared/go-ios) and go-ios
-                                                                    will manage its own tunnel identity. See https://github.com/danielpaulus/go-ios/issues/710
+                                                                    will manage its own tunnel identity. See https://github.com/bingyuegong/go-ios/issues/710
                                                                     If nothing is specified, the current dir is used for the pair record.
                                                                     Pass --udid=<udid> to restrict the agent to a single device (isolated
                                                                     per-device tunnel agent); run one per device on its own --tunnel-info-port.

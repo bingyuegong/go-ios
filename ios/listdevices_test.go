@@ -3,7 +3,7 @@ package ios_test
 import (
 	"testing"
 
-	ios "github.com/danielpaulus/go-ios/ios"
+	ios "github.com/bingyuegong/go-ios/ios"
 
 	"github.com/stretchr/testify/assert"
 )

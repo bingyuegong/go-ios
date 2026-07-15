@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )

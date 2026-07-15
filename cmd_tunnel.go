@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios/tunnel"
+	"github.com/bingyuegong/go-ios/ios/tunnel"
 	"github.com/docopt/docopt-go"
 )
 
@@ -62,7 +62,7 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 				"('operation not permitted'). If the tunnel fails to read selfIdentity.plist, "+
 				"drop '=default' and pass a stable writable directory instead "+
 				"(e.g. --pair-record-path=/Users/Shared/go-ios); go-ios then manages its own "+
-				"tunnel identity and pairs it on first use. See https://github.com/danielpaulus/go-ios/issues/710",
+				"tunnel identity and pairs it on first use. See https://github.com/bingyuegong/go-ios/issues/710",
 				"pairRecordsPath", pairRecordsPath)
 		}
 		// If --udid is given, restrict this agent to that one device so it can run

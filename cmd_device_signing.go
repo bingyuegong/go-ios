@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/danielpaulus/go-ios/ios/signing"
+	"github.com/bingyuegong/go-ios/ios/signing"
 )
 
 func runSignCommand(ctx commandContext) {

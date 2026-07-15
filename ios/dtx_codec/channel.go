@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 const logModule = "go-ios/dtx_codec"

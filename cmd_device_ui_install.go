@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios/signing"
+	"github.com/bingyuegong/go-ios/ios/signing"
 )
 
 const (

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/aluedeke/go-codesign/pkg/codesign"
-	"github.com/danielpaulus/go-ios/ios"
-	"github.com/danielpaulus/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/golog"
 	"software.sslmate.com/src/go-pkcs12"
 )
 

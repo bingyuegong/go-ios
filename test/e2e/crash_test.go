@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielpaulus/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios"
 )
 
 // TestCrashLs lists crash/diagnostic reports. Which reports exist is volatile,

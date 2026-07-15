@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielpaulus/go-ios/test/e2e/harness"
+	"github.com/bingyuegong/go-ios/test/e2e/harness"
 )
 
 // tunnelInfo mirrors the tunnel-info HTTP API / `ios tunnel ls` JSON.

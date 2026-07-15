@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver"
-	dtx "github.com/danielpaulus/go-ios/ios/dtx_codec"
-	"github.com/danielpaulus/go-ios/ios/golog"
-	"github.com/danielpaulus/go-ios/ios/instruments"
-	"github.com/danielpaulus/go-ios/ios/nskeyedarchiver"
+	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
+	"github.com/bingyuegong/go-ios/ios/golog"
+	"github.com/bingyuegong/go-ios/ios/instruments"
+	"github.com/bingyuegong/go-ios/ios/nskeyedarchiver"
 )
 
 func runXUITestWithBundleIdsXcode12Ctx(ctx context.Context, config TestConfig, version *semver.Version,
