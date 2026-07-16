@@ -9,8 +9,8 @@ func runResetLocationCommand(ctx commandContext) {
 }
 
 func runSetLocationCommand(ctx commandContext) {
-	lat, _ := ctx.Args.String("--lat")
-	lon, _ := ctx.Args.String("--lon")
+	lat, _ := ctx.Args.String("<lat>")
+	lon, _ := ctx.Args.String("<lon>")
 
 	if ctx.Device.SupportsRsd() {
 		server, err := instruments.NewLocationSimulationService(ctx.Device)
@@ -24,6 +24,6 @@ func runSetLocationCommand(ctx commandContext) {
 }
 
 func runSetLocationGPXCommand(ctx commandContext) {
-	gpxFilePath, _ := ctx.Args.String("--gpxfilepath")
+	gpxFilePath, _ := ctx.Args.String("<gpxfilepath>")
 	setLocationGPX(ctx.Device, gpxFilePath)
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func runForwardCommand(ctx commandContext) {
-	mappings, _ := ctx.Args["--port"].([]string)
+	mappings, _ := ctx.Args["<mapping>"].([]string)
 	if len(mappings) > 0 {
 		startMultiForwarding(ctx.Device, mappings)
 		return

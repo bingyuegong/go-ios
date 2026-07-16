@@ -55,7 +55,7 @@ func runUIInstallApp(ctx commandContext, target uiInstallTarget) {
 	artifactPath, cleanup := uiInstallArtifactPath(ctx, target)
 	defer cleanup()
 
-	outputPath, _ := ctx.Args.String("--output")
+	outputPath, _ := ctx.Args.String("-output")
 	if outputPath == "" {
 		outputPath = filepath.Join(os.TempDir(), target.OutputBaseName+"-signed-"+time.Now().UTC().Format("20060102150405")+filepath.Ext(artifactPath))
 		if strings.EqualFold(filepath.Ext(artifactPath), ".app") {
@@ -63,13 +63,13 @@ func runUIInstallApp(ctx commandContext, target uiInstallTarget) {
 		}
 	}
 
-	bundleID, _ := ctx.Args.String("--bundleid")
+	bundleID, _ := ctx.Args.String("-bundleid")
 	if bundleID == "" {
 		bundleID = target.DefaultBundle
 	}
-	p12Password, _ := ctx.Args.String("--p12password")
-	p12Path, _ := ctx.Args.String("--p12file")
-	profilePath, _ := ctx.Args.String("--profile")
+	p12Password, _ := ctx.Args.String("-p12password")
+	p12Path, _ := ctx.Args.String("-p12file")
+	profilePath, _ := ctx.Args.String("-profile")
 
 	result, err := signing.SignWithFiles(signing.SignWithFilesOptions{
 		AppPath:     artifactPath,

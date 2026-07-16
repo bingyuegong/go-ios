@@ -39,22 +39,20 @@ func runUIRunCommand(ctx commandContext) {
 		logFatal("unknown ui run target; use 'ios ui run wda' or 'ios ui run devicekit'")
 	}
 
-	bundleID, _ := ctx.Args.String("--bundleid")
+	bundleID, _ := ctx.Args.String("<bundleid>")
 	if bundleID == "" {
 		bundleID = target.defaultBundle
 	}
-	// The runner bundle is also the test host. Allow overrides for non-default
-	// builds, but default to the runner bundle id and the target's xctest config.
-	testRunnerBundleID, _ := ctx.Args.String("--test-runner-bundleid")
+	testRunnerBundleID, _ := ctx.Args.String("<id>")
 	if testRunnerBundleID == "" {
 		testRunnerBundleID = bundleID
 	}
-	xctestConfig, _ := ctx.Args.String("--xctest-config")
+	xctestConfig, _ := ctx.Args.String("<name>")
 	if xctestConfig == "" {
 		xctestConfig = target.xctestConfig
 	}
 	hostPort := target.devicePort
-	if hp, err := ctx.Args.Int("--host-port"); err == nil && hp > 0 {
+	if hp, err := ctx.Args.Int("<port>"); err == nil && hp > 0 {
 		hostPort = uint16(hp)
 	}
 
@@ -101,7 +99,7 @@ func runUIRunCommand(ctx commandContext) {
 }
 
 func uiRunLogWriter(ctx commandContext) io.Writer {
-	rawTestlog, err := ctx.Args.String("--log-output")
+	rawTestlog, err := ctx.Args.String("<file>")
 	if err != nil {
 		return io.Discard
 	}

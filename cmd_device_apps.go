@@ -50,8 +50,8 @@ func runLaunchCommand(ctx commandContext) {
 	if bKillExisting {
 		opts["KillExisting"] = 1
 	}
-	args := toArgs(ctx.Args["--arg"].([]string))
-	envs := toEnvs(ctx.Args["--env"].([]string))
+	args := toArgs(ctx.Args["<a>"].([]string))
+	envs := toEnvs(ctx.Args["<e>"].([]string))
 	pid, err := pControl.LaunchAppWithArgs(bundleID, args, envs, opts)
 	exitIfError("launch app command failed", err)
 	slog.Info("Process launched", "pid", pid)
@@ -64,7 +64,7 @@ func runLaunchCommand(ctx commandContext) {
 }
 
 func runMemlimitOffCommand(ctx commandContext) {
-	processName, _ := ctx.Args.String("--process")
+	processName, _ := ctx.Args.String("<processName>")
 
 	pControl, err := instruments.NewProcessControl(ctx.Device)
 	exitIfError("processcontrol failed", err)
@@ -86,8 +86,8 @@ func runMemlimitOffCommand(ctx commandContext) {
 func runKillCommand(ctx commandContext) {
 	var response []installationproxy.AppInfo
 	bundleID, _ := ctx.Args.String("<bundleID>")
-	processIDint, _ := ctx.Args.Int("--pid")
-	processName, _ := ctx.Args.String("--process")
+	processIDint, _ := ctx.Args.Int("<processID>")
+	processName, _ := ctx.Args.String("<processName>")
 
 	processID := uint64(processIDint)
 

@@ -19,7 +19,7 @@ import (
 )
 
 func runWebInspectorCommand(cmdCtx commandContext) {
-	timeoutSeconds, _ := cmdCtx.Args.String("--timeout")
+	timeoutSeconds, _ := cmdCtx.Args.String("<seconds>")
 	timeout := parseWebInspectorTimeout(timeoutSeconds)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -38,7 +38,7 @@ func runWebInspectorCommand(cmdCtx commandContext) {
 
 	if launch, _ := cmdCtx.Args.Bool("launch"); launch {
 		url, _ := cmdCtx.Args.String("<url>")
-		bundleID, _ := cmdCtx.Args.String("--bundle-id")
+		bundleID, _ := cmdCtx.Args.String("<bundleID>")
 		if bundleID == "" {
 			bundleID = webinspector.SafariBundleID
 		}
@@ -76,7 +76,7 @@ func runWebInspectorCommand(cmdCtx commandContext) {
 
 	if shell, _ := cmdCtx.Args.Bool("js-shell"); shell {
 		url, _ := cmdCtx.Args.String("<url>")
-		bundleID, _ := cmdCtx.Args.String("--bundle-id")
+		bundleID, _ := cmdCtx.Args.String("<bundleID>")
 		openSafari, _ := cmdCtx.Args.Bool("--open-safari")
 		if openSafari {
 			_, err := client.OpenApp(ctx, webinspector.SafariBundleID)
@@ -95,8 +95,8 @@ func runWebInspectorCommand(cmdCtx commandContext) {
 	}
 
 	if cdp, _ := cmdCtx.Args.Bool("cdp"); cdp {
-		host, _ := cmdCtx.Args.String("--host")
-		port, _ := cmdCtx.Args.Int("--port")
+		host, _ := cmdCtx.Args.String("<host>")
+		port, _ := cmdCtx.Args.Int("<port>")
 		if port == 0 {
 			port = 9222
 		}

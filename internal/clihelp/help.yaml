@@ -15,19 +15,19 @@ global_options:
     description: Disable JSON output.
   - flag: --pretty
     description: Pretty-print JSON output.
-  - flag: --udid=<udid>
+  - flag: -u <udid>
     description: Target a specific device.
-  - flag: --tunnel-info-port=<port>
+  - flag: --tunnel-info-port <port>
     description: Tunnel info API port (default 28100).
-  - flag: --tunnel-info-host=<host>
+  - flag: --tunnel-info-host <host>
     description: Tunnel info API host (default 127.0.0.1 or GO_IOS_AGENT_HOST).
-  - flag: --address=<ipv6addr>
+  - flag: --address <ipv6addr>
     description: Device tunnel address.
-  - flag: --rsd-port=<port>
+  - flag: --rsd-port <port>
     description: Device tunnel RSD port.
-  - flag: --proxyurl=<url>
+  - flag: --proxyurl <url>
     description: Outbound HTTP proxy URL.
-  - flag: --userspace-port=<port>
+  - flag: --userspace-port <port>
     description: Userspace tunnel port.
 commands:
   - path: activate
@@ -40,7 +40,7 @@ commands:
     usage: ios assistivetouch (enable | disable | toggle | get) [--force] [options]
     summary: Manage AssistiveTouch state.
   - path: ax
-    usage: ios ax [--font=<fontSize>] [options]
+    usage: ios ax [-font <fontSize>] [options]
     summary: Accessibility inspector features.
   - path: ax audit
     usage: ios ax audit [options]
@@ -85,34 +85,34 @@ commands:
     usage: ios diskspace [options]
     summary: Print disk usage.
   - path: dproxy
-    usage: ios dproxy [--binary] [--mode=<all(default)|usbmuxd|utun>] [--iface=<iface>] [options]
+    usage: ios dproxy [--binary] [-mode <all(default)|usbmuxd|utun>] [-iface <iface>] [options]
     summary: Start debug proxy.
   - path: erase
     usage: ios erase [--force] [options]
     summary: Erase device.
   - path: file ls
-    usage: ios file ls [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] [--path=<path>] [options]
+    usage: ios file ls [-app <bundleID> | -app-group <groupID> | --crash | --temp] [-p <path>] [options]
     summary: List files in app/group/temp/crash container.
   - path: file pull
-    usage: ios file pull [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] --remote=<remotePath> --local=<localPath> [options]
+    usage: ios file pull [-app <bundleID> | -app-group <groupID> | --crash | --temp] -remote <remotePath> -local <localPath> [options]
     summary: Pull file from device.
   - path: file push
-    usage: ios file push [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] --local=<localPath> --remote=<remotePath> [options]
+    usage: ios file push [-app <bundleID> | -app-group <groupID> | --crash | --temp] -local <localPath> -remote <remotePath> [options]
     summary: Push file to device.
   - path: forward
-    usage: ios forward [options] [<hostPort> <targetPort>] [--port=<mapping>]...
+    usage: ios forward [options] [<hostPort> <targetPort>] [-port <mapping>]...
     summary: Forward host port to device.
   - path: fsync
-    usage: ios fsync [--app=bundleId] [options] (pull | push | rm [--r] | tree | mkdir) --srcPath=<srcPath> --dstPath=<dstPath> --path=<targetPath>
+    usage: ios fsync [-app <bundleId>] [options] (pull | push | rm [--r] | tree | mkdir) -srcPath <srcPath> -dstPath <dstPath> -p <targetPath>
     summary: App container file sync operations.
   - path: httpproxy
-    usage: ios httpproxy <host> <port> [<user>] [<pass>] --p12file=<orgid> --password=<p12password> [options]
+    usage: ios httpproxy <host> <port> [<user>] [<pass>] -p12file <orgid> [-password <p12password>] [options]
     summary: Install global HTTP proxy profile.
   - path: httpproxy remove
     usage: ios httpproxy remove [options]
     summary: Remove go-ios HTTP proxy profile.
   - path: image auto
-    usage: ios image auto [--basedir=<where_dev_images_are_stored>] [options]
+    usage: ios image auto [-basedir <where_dev_images_are_stored>] [options]
     summary: Auto-download and mount developer image.
   - path: image list
     usage: ios image list [options]
@@ -136,13 +136,13 @@ commands:
     usage: ios ip [options]
     summary: Detect device IP from packet capture.
   - path: kill
-    usage: ios kill (<bundleID> | --pid=<processID> | --process=<processName>) [options]
+    usage: ios kill (<bundleID> | -pid <processID> | -process <processName>) [options]
     summary: Kill app by bundle ID, PID, or process.
   - path: lang
-    usage: ios lang [--setlocale=<locale>] [--setlang=<newlang>] [options]
+    usage: ios lang [-setlocale <locale>] [-setlang <newlang>] [options]
     summary: Read or set device language and locale.
   - path: launch
-    usage: ios launch <bundleID> [--wait] [--kill-existing] [--arg=<a>]... [--env=<e>]... [options]
+    usage: ios launch <bundleID> [--wait] [--kill-existing] [-arg <a>]... [-env <e>]... [options]
     summary: Launch app by bundle ID.
   - path: list
     usage: ios list [options] [--details]
@@ -151,22 +151,22 @@ commands:
     usage: ios listen [options]
     summary: Listen for device connect/disconnect.
   - path: lockdown get
-    usage: ios lockdown get [<key>] [--domain=<domain>] [options]
+    usage: ios lockdown get [<key>] [-domain <domain>] [options]
     summary: Query lockdown values.
   - path: memlimitoff
-    usage: ios memlimitoff (--process=<processName>) [options]
+    usage: ios memlimitoff (-process <processName>) [options]
     summary: Disable process memory limit.
   - path: mobilegestalt
     usage: ios mobilegestalt <key>... [--plist] [options]
     summary: Query mobilegestalt keys.
   - path: pair
-    usage: ios pair [--p12file=<orgid>] [--password=<p12password>] [options]
+    usage: ios pair [-p12file <orgid>] [-password <p12password>] [options]
     summary: Pair host with device.
   - path: pcap
-    usage: ios pcap [options] [--pid=<processID>] [--process=<processName>]
+    usage: ios pcap [options] [-pid <processID>] [-process <processName>]
     summary: Capture network packets.
   - path: prepare
-    usage: ios prepare [--skip-all] [--skip=<option>]... [--certfile=<cert_file_path>] [--orgname=<org_name>] [--p12password=<p12password>] [--locale=<locale>] [--lang=<lang>] [options]
+    usage: ios prepare [--skip-all] [-skip <option>]... [-certfile <cert_file_path>] [-orgname <org_name>] [-p12password <p12password>] [-locale <locale>] [-lang <lang>] [options]
     summary: Prepare device for automation.
   - path: prepare cloudconfig
     usage: ios prepare cloudconfig [options]
@@ -178,10 +178,10 @@ commands:
     usage: ios prepare printskip
     summary: Print prepare skip options.
   - path: wifi
-    usage: ios wifi [--ssid=<ssid>] [--password=<password>] [--enc-type=<encType>] [--remove] [options]
-    summary: Install or remove a Wi-Fi auto-connect profile (supervised + setup = silent, else confirm on device).
+    usage: ios wifi [-ssid <ssid>] [-password <password>] [-enc-type <encType>] [--remove] [options]
+    summary: Install or remove a Wi-Fi auto-connect profile.
   - path: profile add
-    usage: ios profile add <profileFile> [--p12file=<orgid>] [--password=<p12password>] [options]
+    usage: ios profile add <profileFile> [-p12file <orgid>] [-password <p12password>] [options]
     summary: Install profile on device.
   - path: profile list
     usage: ios profile list [options]
@@ -208,34 +208,34 @@ commands:
     usage: ios rsd ls [options]
     summary: List RSD services.
   - path: runtest
-    usage: ios runtest [--bundle-id=<bundleid>] [--test-runner-bundle-id=<testrunnerbundleid>] [--xctest-config=<xctestconfig>] [--log-output=<file>] [--xctest] [--test-to-run=<tests>]... [--test-to-skip=<tests>]... [--env=<e>]... [options]
+    usage: ios runtest [-bundle-id <bundleid>] [-test-runner-bundle-id <testrunnerbundleid>] [-xctest-config <xctestconfig>] [-log-output <file>] [--xctest] [-test-to-run <tests>]... [-test-to-skip <tests>]... [-env <e>]... [options]
     summary: Run XCUITest bundles.
   - path: runwda
-    usage: ios runwda [--bundleid=<bundleid>] [--testrunnerbundleid=<testbundleid>] [--xctestconfig=<xctestconfig>] [--log-output=<file>] [--arg=<a>]... [--env=<e>]... [options]
+    usage: ios runwda [-bundleid <bundleid>] [-testrunnerbundleid <testbundleid>] [-xctestconfig <xctestconfig>] [-log-output <file>] [-arg <a>]... [-env <e>]... [options]
     summary: Run WebDriverAgent.
   - path: runxctest
-    usage: ios runxctest [--xctestrun-file-path=<xctestrunFilePath>] [--log-output=<file>] [options]
+    usage: ios runxctest [-xctestrun-file-path <xctestrunFilePath>] [-log-output <file>] [options]
     summary: Run XCTest from .xctestrun file.
   - path: screenshot
-    usage: ios screenshot [options] [--output=<outfile>] [--stream] [--port=<port>]
+    usage: ios screenshot [options] [-output <outfile>] [--stream] [-port <port>]
     summary: Capture screenshot or stream MJPEG.
   - path: sign provision appstoreconnect
-    usage: ios sign provision appstoreconnect --bundleid=<bundleid> --asc-key-id=<keyid> --asc-issuer-id=<issuerid> --asc-private-key=<p8file> --p12-output=<p12file> --profile-output=<mobileprovision> [--p12password=<password>] [--bundle-name=<name>] [--profile-name=<name>] [--device-name=<name>] [options]
+    usage: ios sign provision appstoreconnect -bundleid <bundleid> -asc-key-id <keyid> -asc-issuer-id <issuerid> -asc-private-key <p8file> -p12-output <p12file> -profile-output <mobileprovision> [-p12password <password>] [-bundle-name <name>] [-profile-name <name>] [-device-name <name>] [options]
     summary: Create signing assets through App Store Connect.
   - path: sign app
-    usage: ios sign app --path=<ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--output=<signedPath>] [--bundleid=<bundleid>] [--install] [options]
+    usage: ios sign app -p <ipaOrAppFolder> -p12file <p12file> -profile <mobileprovision> [-p12password <password>] [-output <signedPath>] [-bundleid <bundleid>] [--install] [options]
     summary: Sign an app with a P12 and profile; run ui download first for WDA or DeviceKit artifacts.
   - path: setlocation
-    usage: ios setlocation [options] [--lat=<lat>] [--lon=<lon>]
+    usage: ios setlocation [options] [-lat <lat>] [-lon <lon>]
     summary: Set simulated location coordinates.
   - path: setlocationgpx
-    usage: ios setlocationgpx [options] [--gpxfilepath=<gpxfilepath>]
+    usage: ios setlocationgpx [options] [-gpxfilepath <gpxfilepath>]
     summary: Set simulated location from GPX.
   - path: syslog
     usage: ios syslog [--parse] [options]
     summary: Stream device syslog.
   - path: ostrace
-    usage: ios ostrace [--pid=<processID>] [--process=<processName>] [--level=<levels>] [--subsystem=<sub>] [--match=<str>] [--exclude=<str>] [options]
+    usage: ios ostrace [-pid <processID>] [-process <processName>] [-level <levels>] [-subsystem <sub>] [-match <str>] [-exclude <str>] [options]
     summary: Stream os_trace_relay logs.
   - path: sysmontap
     usage: ios sysmontap [options]
@@ -247,16 +247,16 @@ commands:
     usage: ios tunnel ls [options]
     summary: List running tunnels.
   - path: tunnel start
-    usage: ios tunnel start [options] [--pair-record-path=<pairrecordpath>] [--userspace]
+    usage: ios tunnel start [options] [-pair-record-path <pairrecordpath>] [--userspace]
     summary: Start iOS 17+ tunnel and pair if needed.
   - path: tunnel stopagent
     usage: ios tunnel stopagent
     summary: Stop tunnel agent.
   - path: ui install
-    usage: ios ui install (wda | devicekit) --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--path=<ipaOrZipOrApp>] [--output=<signedPath>] [--bundleid=<bundleid>] [options]
-    summary: Download defaults, or use --path, then sign and install WDA or DeviceKit.
+    usage: ios ui install (wda | devicekit) -p12file <p12file> -profile <mobileprovision> [-p12password <password>] [-p <ipaOrZipOrApp>] [-output <signedPath>] [-bundleid <bundleid>] [options]
+    summary: Download defaults, or use -p, then sign and install WDA or DeviceKit.
   - path: ui download
-    usage: ios ui download [(wda | devicekit | all)] [--output=<dir>] [options]
+    usage: ios ui download [(wda | devicekit | all)] [-output <dir>] [options]
     summary: Download WDA and/or DeviceKit artifacts and print paths as JSON.
   - path: ui
     usage: ios ui <download|status|api|tap|swipe|longpress|type|button|screenshot|source|size|orientation|app|stream|raw> [options]
@@ -265,19 +265,19 @@ commands:
     usage: ios uninstall <bundleID> [options]
     summary: Uninstall app by bundle ID.
   - path: webinspector list
-    usage: ios webinspector list [--timeout=<seconds>] [options]
+    usage: ios webinspector list [-timeout <seconds>] [options]
     summary: List inspectable Safari and WebView pages.
   - path: webinspector launch
-    usage: ios webinspector launch <url> [--bundle-id=<bundleID>] [--timeout=<seconds>] [options]
+    usage: ios webinspector launch <url> [-bundle-id <bundleID>] [-timeout <seconds>] [options]
     summary: Launch and navigate Safari or another app by Remote Automation.
   - path: webinspector eval
-    usage: ios webinspector eval <pageID> <expression> [--timeout=<seconds>] [--console-enable] [options]
+    usage: ios webinspector eval <pageID> <expression> [-timeout <seconds>] [--console-enable] [options]
     summary: Evaluate JavaScript in an inspectable page.
   - path: webinspector js-shell
-    usage: ios webinspector js-shell [<url>] [--bundle-id=<bundleID>] [--open-safari] [--timeout=<seconds>] [--console-enable] [options]
+    usage: ios webinspector js-shell [<url>] [-bundle-id <bundleID>] [--open-safari] [-timeout <seconds>] [--console-enable] [options]
     summary: Start an interactive JavaScript shell for an inspectable page.
   - path: webinspector cdp
-    usage: ios webinspector cdp [--host=<host>] [--port=<port>] [options]
+    usage: ios webinspector cdp [-host <host>] [-port <port>] [options]
     summary: Start a Chrome DevTools Protocol bridge.
   - path: version
     usage: ios --version | version [options]

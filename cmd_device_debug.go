@@ -18,8 +18,8 @@ import (
 )
 
 func runPCAPCommand(ctx commandContext) {
-	p, _ := ctx.Args.String("--process")
-	i, _ := ctx.Args.Int("--pid")
+	p, _ := ctx.Args.String("<processName>")
+	i, _ := ctx.Args.Int("<processID>")
 	pcap.Pid = int32(i)
 	pcap.ProcName = p
 	err := pcap.Start(ctx.Device)
@@ -39,12 +39,12 @@ func runSyslogCommand(ctx commandContext) {
 }
 
 func runOSTraceCommand(ctx commandContext) {
-	pidStr, _ := ctx.Args.String("--pid")
-	processName, _ := ctx.Args.String("--process")
-	levelStr, _ := ctx.Args.String("--level")
-	subsystem, _ := ctx.Args.String("--subsystem")
-	match, _ := ctx.Args.String("--match")
-	exclude, _ := ctx.Args.String("--exclude")
+	pidStr, _ := ctx.Args.String("<processID>")
+	processName, _ := ctx.Args.String("<processName>")
+	levelStr, _ := ctx.Args.String("<levels>")
+	subsystem, _ := ctx.Args.String("<sub>")
+	match, _ := ctx.Args.String("<matchstr>")
+	exclude, _ := ctx.Args.String("<excludestr>")
 	pid := -1
 	if pidStr != "" {
 		var err error
@@ -119,10 +119,10 @@ func runImageCommand(ctx commandContext) {
 		listMountedImages(ctx.Device)
 	}
 
-	imagePath, _ := ctx.Args.String("-p")
+	imagePath, _ := ctx.Args.String("<imagepath>")
 	auto, _ := ctx.Args.Bool("auto")
 	if auto {
-		basedir, _ := ctx.Args.String("--basedir")
+		basedir, _ := ctx.Args.String("<where_dev_images_are_stored>")
 		if basedir == "" {
 			basedir = "./devimages"
 		}

@@ -13,24 +13,28 @@ import (
 )
 
 func runTestCommand(ctx commandContext) {
-	bundleID, _ := ctx.Args.String("--bundle-id")
-	testRunnerBundleId, _ := ctx.Args.String("--test-runner-bundle-id")
-	xctestConfig, _ := ctx.Args.String("--xctest-config")
+	bundleID, _ := ctx.Args.String("<bundleid>")
+	testRunnerBundleId, _ := ctx.Args.String("<testrunnerbundleid>")
+	xctestConfig, _ := ctx.Args.String("<xctestconfig>")
 
-	testsToRunArg := ctx.Args["--test-to-run"]
+	testsToRunArg := ctx.Args["-test-to-run"]
 	var testsToRun []string
 	if testsToRunArg != nil && len(testsToRunArg.([]string)) > 0 {
 		testsToRun = testsToRunArg.([]string)
 	}
 
-	testsToSkipArg := ctx.Args["--test-to-skip"]
+	testsToSkipArg := ctx.Args["-test-to-skip"]
 	var testsToSkip []string
 	if testsToSkipArg != nil && len(testsToSkipArg.([]string)) > 0 {
 		testsToSkip = testsToSkipArg.([]string)
 	}
 
-	rawTestlog, rawTestlogErr := ctx.Args.String("--log-output")
-	env := splitKeyValuePairs(ctx.Args["--env"].([]string), "=")
+	rawTestlog, rawTestlogErr := ctx.Args.String("<file>")
+	envRaw, _ := ctx.Args["<e>"].([]string)
+	if envRaw == nil {
+		envRaw = []string{}
+	}
+	env := splitKeyValuePairs(envRaw, "=")
 	isXCTest, _ := ctx.Args.Bool("--xctest")
 
 	config := testmanagerd.TestConfig{
@@ -73,9 +77,9 @@ func runTestCommand(ctx commandContext) {
 }
 
 func runXCTestCommand(ctx commandContext) {
-	xctestrunFilePath, _ := ctx.Args.String("--xctestrun-file-path")
+	xctestrunFilePath, _ := ctx.Args.String("<xctestrunFilePath>")
 
-	rawTestlog, rawTestlogErr := ctx.Args.String("--log-output")
+	rawTestlog, rawTestlogErr := ctx.Args.String("<file>")
 
 	if rawTestlogErr == nil {
 		var writer *os.File = os.Stdout
@@ -105,11 +109,19 @@ func runXCTestCommand(ctx commandContext) {
 }
 
 func runWDACommand(ctx commandContext) {
-	bundleID, _ := ctx.Args.String("--bundleid")
-	testbundleID, _ := ctx.Args.String("--testrunnerbundleid")
-	xctestconfig, _ := ctx.Args.String("--xctestconfig")
-	wdaargs := ctx.Args["--arg"].([]string)
-	wdaenv := splitKeyValuePairs(ctx.Args["--env"].([]string), "=")
+	bundleID, _ := ctx.Args.String("<bundleid>")
+	testbundleID, _ := ctx.Args.String("<testbundleid>")
+	xctestconfig, _ := ctx.Args.String("<xctestconfig>")
+	wdaargsRaw, _ := ctx.Args["<a>"].([]string)
+	if wdaargsRaw == nil {
+		wdaargsRaw = []string{}
+	}
+	wdaargs := wdaargsRaw
+	wdaenvRaw, _ := ctx.Args["<e>"].([]string)
+	if wdaenvRaw == nil {
+		wdaenvRaw = []string{}
+	}
+	wdaenv := splitKeyValuePairs(wdaenvRaw, "=")
 
 	if bundleID == "" && testbundleID == "" && xctestconfig == "" {
 		slog.Info("no bundle ids specified, falling back to defaults")
@@ -121,7 +133,7 @@ func runWDACommand(ctx commandContext) {
 	}
 	slog.Info("Running wda", "bundleid", bundleID, "testbundleid", testbundleID, "xctestconfig", xctestconfig)
 
-	rawTestlog, rawTestlogErr := ctx.Args.String("--log-output")
+	rawTestlog, rawTestlogErr := ctx.Args.String("<file>")
 
 	var writer io.Writer
 

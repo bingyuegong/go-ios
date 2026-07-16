@@ -23,11 +23,11 @@ func runSignCommand(ctx commandContext) {
 // dispatched as a global command and can run on a hosted CI runner to mint the
 // shared signing identity.
 func runSignCertificateAppStoreConnectCommand(ctx commandContext) {
-	p12Password, _ := ctx.Args.String("--p12password")
-	p12Output, _ := ctx.Args.String("--p12-output")
-	keyID, _ := ctx.Args.String("--asc-key-id")
-	issuerID, _ := ctx.Args.String("--asc-issuer-id")
-	privateKeyPath, _ := ctx.Args.String("--asc-private-key")
+	p12Password, _ := ctx.Args.String("-p12password")
+	p12Output, _ := ctx.Args.String("-p12-output")
+	keyID, _ := ctx.Args.String("-asc-key-id")
+	issuerID, _ := ctx.Args.String("-asc-issuer-id")
+	privateKeyPath, _ := ctx.Args.String("-asc-private-key")
 	revokeExisting, _ := ctx.Args.Bool("--revoke-existing")
 	creds, err := signing.LoadAppStoreConnectCredentials(keyID, issuerID, privateKeyPath)
 	exitIfError("failed loading App Store Connect credentials", err)
@@ -43,19 +43,19 @@ func runSignCertificateAppStoreConnectCommand(ctx commandContext) {
 }
 
 func runSignProvisionAppStoreConnectCommand(ctx commandContext) {
-	bundleID, _ := ctx.Args.String("--bundleid")
-	bundleName, _ := ctx.Args.String("--bundle-name")
-	profileName, _ := ctx.Args.String("--profile-name")
-	deviceName, _ := ctx.Args.String("--device-name")
-	p12Password, _ := ctx.Args.String("--p12password")
-	p12Output, _ := ctx.Args.String("--p12-output")
-	profileOutput, _ := ctx.Args.String("--profile-output")
+	bundleID, _ := ctx.Args.String("-bundleid")
+	bundleName, _ := ctx.Args.String("-bundle-name")
+	profileName, _ := ctx.Args.String("-profile-name")
+	deviceName, _ := ctx.Args.String("-device-name")
+	p12Password, _ := ctx.Args.String("-p12password")
+	p12Output, _ := ctx.Args.String("-p12-output")
+	profileOutput, _ := ctx.Args.String("-profile-output")
 
-	keyID, _ := ctx.Args.String("--asc-key-id")
-	issuerID, _ := ctx.Args.String("--asc-issuer-id")
-	privateKeyPath, _ := ctx.Args.String("--asc-private-key")
+	keyID, _ := ctx.Args.String("-asc-key-id")
+	issuerID, _ := ctx.Args.String("-asc-issuer-id")
+	privateKeyPath, _ := ctx.Args.String("-asc-private-key")
 	revokeExisting, _ := ctx.Args.Bool("--revoke-existing")
-	certificateID, _ := ctx.Args.String("--certificate-id")
+	certificateID, _ := ctx.Args.String("-certificate-id")
 	creds, err := signing.LoadAppStoreConnectCredentials(keyID, issuerID, privateKeyPath)
 	exitIfError("failed loading App Store Connect credentials", err)
 
@@ -78,11 +78,11 @@ func runSignProvisionAppStoreConnectCommand(ctx commandContext) {
 
 func runSignAppCommand(ctx commandContext) {
 	appPath, _ := ctx.Args.String("-p")
-	outputPath, _ := ctx.Args.String("--output")
-	bundleID, _ := ctx.Args.String("--bundleid")
-	p12Path, _ := ctx.Args.String("--p12file")
-	profilePath, _ := ctx.Args.String("--profile")
-	p12Password, _ := ctx.Args.String("--p12password")
+	outputPath, _ := ctx.Args.String("-output")
+	bundleID, _ := ctx.Args.String("-bundleid")
+	p12Path, _ := ctx.Args.String("-p12file")
+	profilePath, _ := ctx.Args.String("-profile")
+	p12Password, _ := ctx.Args.String("-p12password")
 	install, _ := ctx.Args.Bool("--install")
 
 	result, err := signing.SignWithFiles(signing.SignWithFilesOptions{
