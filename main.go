@@ -57,7 +57,12 @@ func main() {
 	Main()
 }
 
-const version = "local-build"
+var version = func() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "local-build"
+}()
 
 // Main Exports main for testing
 func Main() {
