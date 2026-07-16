@@ -25,7 +25,7 @@ func isTunnelCommand(args docopt.Opts) bool {
 // tunnelTargetUDID returns the device udid for a per-device tunnel command,
 // falling back to the GO_IOS_UDID environment variable.
 func tunnelTargetUDID(args docopt.Opts) string {
-	udid, _ := args.String("--udid")
+	udid, _ := args.String("-u")
 	if udid == "" {
 		udid = os.Getenv("GO_IOS_UDID")
 	}
@@ -85,7 +85,7 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 	} else if stopCommand {
 		udid := tunnelTargetUDID(ctx.Args)
 		if udid == "" {
-			exitIfError("failed to stop tunnel", fmt.Errorf("--udid is required"))
+			exitIfError("failed to stop tunnel", fmt.Errorf("-u is required"))
 		}
 		err := tunnel.StopTunnelForDevice(udid, ctx.TunnelInfoHost, ctx.TunnelInfoPort)
 		exitIfError("failed to stop tunnel", err)
@@ -97,7 +97,7 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 	} else if refreshCommand {
 		udid := tunnelTargetUDID(ctx.Args)
 		if udid == "" {
-			exitIfError("failed to refresh tunnel", fmt.Errorf("--udid is required"))
+			exitIfError("failed to refresh tunnel", fmt.Errorf("-u is required"))
 		}
 		tun, err := tunnel.RefreshTunnelForDevice(udid, ctx.TunnelInfoHost, ctx.TunnelInfoPort, 30*time.Second)
 		exitIfError("failed to refresh tunnel", err)

@@ -122,7 +122,6 @@ func GetDeviceWithAddress(udid string, address string, provider RsdPortProvider)
 			return DeviceEntry{}, errors.New("no iOS devices are attached to this host")
 		}
 		device := deviceList.DeviceList[0]
-		golog.Info("no udid specified using first device in list", "module", logModule, "udid", device.Properties.SerialNumber)
 		device.Address = address
 		device.Rsd = provider
 		return device, nil

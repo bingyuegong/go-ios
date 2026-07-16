@@ -85,7 +85,7 @@ func runUIInstallApp(ctx commandContext, target uiInstallTarget) {
 }
 
 func uiInstallArtifactPath(ctx commandContext, target uiInstallTarget) (string, func()) {
-	pathArg, _ := ctx.Args.String("--path")
+	pathArg, _ := ctx.Args.String("-p")
 	if pathArg != "" {
 		return prepareUIInstallAppPath(pathArg)
 	}

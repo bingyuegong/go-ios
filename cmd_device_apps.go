@@ -16,7 +16,10 @@ func runPSCommand(ctx commandContext) {
 }
 
 func runInstallCommand(ctx commandContext) {
-	path, _ := ctx.Args.String("--path")
+	path, _ := ctx.Args.String("-p")
+	if path == "" {
+		path, _ = ctx.Args.String("<ipaOrAppFolder>")
+	}
 	installApp(ctx.Device, path)
 }
 
@@ -30,7 +33,8 @@ func runAppsCommand(ctx commandContext) {
 	system, _ := ctx.Args.Bool("--system")
 	all, _ := ctx.Args.Bool("--all")
 	filesharing, _ := ctx.Args.Bool("--filesharing")
-	printInstalledApps(ctx.Device, system, all, list, filesharing)
+	jsonOutput, _ := ctx.Args.Bool("-J")
+	printInstalledApps(ctx.Device, system, all, list, filesharing, jsonOutput)
 }
 
 func runLaunchCommand(ctx commandContext) {

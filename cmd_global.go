@@ -62,6 +62,6 @@ func isDeviceListCommand(args docopt.Opts) bool {
 }
 
 func runDeviceListCommand(ctx commandContext) {
-	details, _ := ctx.Args.Bool("--details")
-	printDeviceList(details)
+	jsonOutput, _ := ctx.Args.Bool("-J")
+	printDeviceList(jsonOutput)
 }

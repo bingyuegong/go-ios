@@ -80,7 +80,7 @@ func runFileCommand(ctx commandContext) {
 	}()
 
 	if ls, _ := ctx.Args.Bool("ls"); ls {
-		path, _ := ctx.Args.String("--path")
+		path, _ := ctx.Args.String("-p")
 		if path == "" {
 			path = "."
 		}
@@ -189,7 +189,7 @@ func runFsyncCommand(ctx commandContext) {
 	defer afcService.Close()
 
 	if rm, _ := ctx.Args.Bool("rm"); rm {
-		path, _ := ctx.Args.String("--path")
+		path, _ := ctx.Args.String("-p")
 		isRecursive, _ := ctx.Args.Bool("--r")
 		if isRecursive {
 			err = afcService.RemoveAll(path)
@@ -200,7 +200,7 @@ func runFsyncCommand(ctx commandContext) {
 	}
 
 	if tree, _ := ctx.Args.Bool("tree"); tree {
-		path, _ := ctx.Args.String("--path")
+		path, _ := ctx.Args.String("-p")
 		err := afcService.WalkDir(path, func(path string, info afc.FileInfo, err error) error {
 			s := strings.Split(path, string(os.PathSeparator))
 			_, f := filepath.Split(path)
@@ -218,7 +218,7 @@ func runFsyncCommand(ctx commandContext) {
 	}
 
 	if mkdir, _ := ctx.Args.Bool("mkdir"); mkdir {
-		path, _ := ctx.Args.String("--path")
+		path, _ := ctx.Args.String("-p")
 		err = afcService.MkDir(path)
 		exitIfError("fsync: mkdir failed", err)
 	}

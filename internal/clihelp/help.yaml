@@ -127,7 +127,7 @@ commands:
     usage: ios info [display | lockdown] [options]
     summary: Dump device info.
   - path: install
-    usage: ios install --path=<ipaOrAppFolder> [options]
+    usage: ios install [-p] <ipaOrAppFolder> [options]
     summary: Install app bundle or IPA.
   - path: instruments notifications
     usage: ios instruments notifications [options]

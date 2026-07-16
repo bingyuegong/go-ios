@@ -32,7 +32,7 @@ func tunnelInfoConfigFromArgs(arguments docopt.Opts) tunnelInfoConfig {
 }
 
 func resolveDevice(arguments docopt.Opts, tunnelInfo tunnelInfoConfig) ios.DeviceEntry {
-	udid, _ := arguments.String("--udid")
+	udid, _ := arguments.String("-u")
 	if udid == "" {
 		udid = os.Getenv("GO_IOS_UDID")
 	}

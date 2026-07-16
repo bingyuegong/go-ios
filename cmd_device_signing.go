@@ -77,7 +77,7 @@ func runSignProvisionAppStoreConnectCommand(ctx commandContext) {
 }
 
 func runSignAppCommand(ctx commandContext) {
-	appPath, _ := ctx.Args.String("--path")
+	appPath, _ := ctx.Args.String("-p")
 	outputPath, _ := ctx.Args.String("--output")
 	bundleID, _ := ctx.Args.String("--bundleid")
 	p12Path, _ := ctx.Args.String("--p12file")

@@ -76,7 +76,7 @@ Usage:
   ios --version | version [options]
   ios -h | --help
   ios activate [options]
-  ios apps [--system] [--all] [--list] [--filesharing] [options]
+  ios apps [--system] [--all] [--list] [--filesharing] [-J] [options]
   ios assistivetouch (enable | disable | toggle | get) [--force] [options]
   ios ax [--font=<fontSize>] [options]
   ios ax audit [options]
@@ -95,26 +95,26 @@ Usage:
   ios diskspace [options]
   ios dproxy [--binary] [--mode=<all(default)|usbmuxd|utun>] [--iface=<iface>] [options]
   ios erase [--force] [options]
-  ios file ls [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] [--path=<path>] [options]
+  ios file ls [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] [-p <path>] [options]
   ios file pull [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] --remote=<remotePath> --local=<localPath> [options]
   ios file push [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] --local=<localPath> --remote=<remotePath> [options]
   ios forward [options] [<hostPort> <targetPort>] [--port=<mapping>]...
   ios fsync [--app=bundleId] [options] (pull | push) --srcPath=<srcPath> --dstPath=<dstPath>
-  ios fsync [--app=bundleId] [options] (rm [--r] | tree | mkdir) --path=<targetPath>
+  ios fsync [--app=bundleId] [options] (rm [--r] | tree | mkdir) -p <targetPath>
   ios httpproxy <host> <port> [<user>] [<pass>] --p12file=<orgid> --password=<p12password> [options]
   ios httpproxy remove [options]
   ios image auto [--basedir=<where_dev_images_are_stored>] [options]
   ios image list [options]
-  ios image mount [--path=<imagepath>] [options]
+  ios image mount [-p <imagepath>] [options]
   ios image unmount [options]
   ios info [display | lockdown] [options]
-  ios install --path=<ipaOrAppFolder> [options]
+  ios install [-p] <ipaOrAppFolder> [options]
   ios instruments notifications [options]
   ios ip [options]
   ios kill (<bundleID> | --pid=<processID> | --process=<processName>) [options]
   ios lang [--setlocale=<locale>] [--setlang=<newlang>] [options]
   ios launch <bundleID> [--wait] [--kill-existing] [--arg=<a>]... [--env=<e>]... [options]
-  ios list [options] [--details]
+  ios list [-J] [options]
   ios listen [options]
   ios lockdown get [<key>] [--domain=<domain>] [options]
   ios memlimitoff (--process=<processName>) [options]
@@ -141,7 +141,7 @@ Usage:
   ios screenshot [options] [--output=<outfile>] [--stream] [--port=<port>]
   ios sign certificate appstoreconnect --asc-key-id=<keyid> --asc-issuer-id=<issuerid> --asc-private-key=<p8file> [--p12-output=<p12file>] [--p12password=<password>] [--revoke-existing] [options]
   ios sign provision appstoreconnect --bundleid=<bundleid> --asc-key-id=<keyid> --asc-issuer-id=<issuerid> --asc-private-key=<p8file> --profile-output=<mobileprovision> [--p12-output=<p12file>] [--certificate-id=<id>] [--revoke-existing] [--p12password=<password>] [--bundle-name=<name>] [--profile-name=<name>] [--device-name=<name>] [options]
-  ios sign app --path=<ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--output=<signedPath>] [--bundleid=<bundleid>] [--install] [options]
+  ios sign app -p <ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--output=<signedPath>] [--bundleid=<bundleid>] [--install] [options]
   ios setlocation [options] [--lat=<lat>] [--lon=<lon>]
   ios setlocationgpx [options] [--gpxfilepath=<gpxfilepath>]
   ios shutdown [options]
@@ -158,7 +158,7 @@ Usage:
   ios tunnel refresh [options]
   ios tunnel start [options] [--pair-record-path=<pairrecordpath>] [--userspace]
   ios tunnel stopagent
-  ios ui install (wda | devicekit) --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [--path=<ipaOrZipOrApp>] [--output=<signedPath>] [--bundleid=<bundleid>] [options]
+  ios ui install (wda | devicekit) --p12file=<p12file> --profile=<mobileprovision> [--p12password=<password>] [-p <ipaOrZipOrApp>] [--output=<signedPath>] [--bundleid=<bundleid>] [options]
   ios ui run (wda | devicekit) [--bundleid=<bundleid>] [--test-runner-bundleid=<id>] [--xctest-config=<name>] [--host-port=<port>] [--log-output=<file>] [options]
   ios ui download [(wda | devicekit | all)] [--output=<dir>] [options]
   ios ui status [--driver=<driver>] [--wda-url=<url>] [--devicekit-url=<url>] [options]
@@ -193,7 +193,7 @@ Options:
   --nojson                  Disable JSON output
   --pretty                  Pretty-print JSON command output
   -h --help                 Show this screen.
-  --udid=<udid>             UDID of the device. Can also be set via GO_IOS_UDID environment variable.
+  -u <udid>                 UDID of the device. Can also be set via GO_IOS_UDID environment variable.
   --tunnel-info-port=<port> When go-ios is used to manage tunnels for iOS 17+,
                             it exposes them on an HTTP-API (default port: 28100)
   --tunnel-info-host=<host> Host the tunnel-info HTTP-API binds to and is queried on.
@@ -226,18 +226,20 @@ Options:
 
 The commands work as following:
   The default output of all commands is JSON. Should you prefer human readable outout, specify the --nojson option with your command.
-  By default, the first device found will be used for a command unless you specify a --udid=some_udid switch.
+  By default, the first device found will be used for a command unless you specify a -u <udid> switch.
   Specify -v for debug logging and -t for dumping every message.
 
     ios --version | version [options]                     Prints the version
     ios -h | --help                                       Prints this screen.
     ios activate [options]                                Activate a device
 
-    ios apps [--system] [--all] [--list] [--filesharing]  Retrieves a list of installed applications.
+    ios apps [--system] [--all] [--list] [--filesharing] [-J]  Retrieves a list of installed applications.
+                                                          Default output: bundle ID, app name and version (one per line).
                                                           --system prints out preinstalled system apps.
                                                           --all prints all apps, including system, user, and hidden apps.
                                                           --list only prints bundle ID, bundle name and version number.
                                                           --filesharing only prints apps which enable documents sharing.
+                                                          -J outputs full JSON for each app.
 
     ios assistivetouch (enable | disable | toggle | get) [--force] [options]
                                                           Enables, disables, toggles, or returns the state of the "AssistiveTouch" software home-screen button.
@@ -281,7 +283,7 @@ The commands work as following:
 
     ios erase [--force] [options]                                 Erase the device. It will prompt you to input y+Enter unless --force is specified.
 
-    ios file ls [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] [--path=<path>] [options]
+    ios file ls [--app=<bundleID> | --app-group=<groupID> | --crash | --temp] [-p <path>] [options]
                                                                   List files using RemoteXPC (iOS 17+). Requires tunnel.
                                                                   Use --app for app container, --app-group for app group,
                                                                   --crash for crash logs, or --temp for temporary files.
@@ -300,7 +302,7 @@ The commands work as following:
     ios fsync [--app=bundleId] [options] (pull | push) --srcPath=<srcPath> --dstPath=<dstPath>
                                                                   Pull or Push file from srcPath to dstPath.
 
-    ios fsync [--app=bundleId] [options] (rm [--r] | tree | mkdir) --path=<targetPath>
+    ios fsync [--app=bundleId] [options] (rm [--r] | tree | mkdir) -p <targetPath>
                                                                   Remove | treeview | mkdir in target path.
                                                                   --r used alongside rm will recursively remove all files and directories from target path.
 
@@ -318,13 +320,13 @@ The commands work as following:
 
     ios image list [options]                        List currently mounted developers images' signatures
     
-    ios image mount [--path=<imagepath>] [options]  Mount a image from <imagepath>
+    ios image mount [-p <imagepath>] [options]  Mount a image from <imagepath>
                                                     For iOS 17+ (personalized developer disk images),
                                                     <imagepath> must point to the "Restore" directory inside the developer disk
 
     ios image unmount [options]                     Unmount developer disk image
     ios info [display | lockdown] [options]         Prints a dump of device information from the given source.
-    ios install --path=<ipaOrAppFolder> [options]   Specify a .app folder or an installable ipa file that will be installed.
+    ios install [-p] <ipaOrAppFolder> [options]  Specify a .app folder or an installable ipa file that will be installed.
     ios instruments notifications [options]         Listen to application state notifications
 
     ios ip [options]                                Uses the live pcap iOS packet capture to wait until it finds one that contains the IP address of the device.
@@ -343,7 +345,7 @@ The commands work as following:
                                                                        Launch app with the bundleID on the device. Get your bundle ID from the apps command.
                                                                        --wait keeps the connection open if you want logs.
 
-    ios list [options] [--details]                                     Prints a list of all connected device's udids.
+    ios list [-J] [options]                                             Prints a list of all connected devices. Default is table format, use -J for JSON output.
                                                                        If --details is specified, it includes version, name and model of each device.
 
     ios listen [options]                                               Keeps a persistent connection open and notifies about newly connected or disconnected devices.
@@ -431,15 +433,15 @@ The commands work as following:
                                                                     Creates an iOS development signing certificate, P12, and provisioning profile through App Store Connect.
                                                                     This command does not sign an app. Pass --revoke-existing to revoke a leftover go-ios certificate first (repeatable provisioning).
 
-    ios sign app --path=<ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision>
+    ios sign app -p <ipaOrAppFolder> --p12file=<p12file> --profile=<mobileprovision>
                                                                     Resigns the IPA or .app with go-codesign using local signing files,
                                                                     and optionally installs the signed result with --install.
-                                                                    For WDA or DeviceKit artifacts, run "ios ui download" first and pass the downloaded path with --path.
+                                                                    For WDA or DeviceKit artifacts, run "ios ui download" first and pass the downloaded path with -p.
 
     ios ui install (wda | devicekit) --p12file=<p12file> --profile=<mobileprovision>
-                                                                    Downloads the default DeviceKit or WDA artifact from deviceboxhq.com unless --path is provided,
+                                                                    Downloads the default DeviceKit or WDA artifact from deviceboxhq.com unless -p is provided,
                                                                     signs it with local signing files, and installs it on the selected device.
-                                                                    Run "ios ui download" to pre-download artifacts, or pass --path to use your own local build.
+                                                                    Run "ios ui download" to pre-download artifacts, or pass -p to use your own local build.
 
     ios ui run (wda | devicekit) [--bundleid=<bundleid>] [--host-port=<port>] [--log-output=<file>]
                                                                     Runs an installed UI automation runner (WebDriverAgent or DeviceKit) and forwards
@@ -449,7 +451,7 @@ The commands work as following:
 
     ios ui download [(wda | devicekit | all)] [--output=<dir>]       Downloads default WDA and/or DeviceKit artifacts from deviceboxhq.com,
                                                                     extracts zip artifacts, and prints JSON describing the files.
-                                                                    Use the printed artifactPath or appPath with "ios ui install --path" or "ios sign app --path".
+                                                                    Use the printed artifactPath or appPath with "ios ui install -p" or "ios sign app -p".
 
     ios ui status [--driver=<driver>]                                Checks the configured UI automation backend. Defaults to DeviceKit.
 
@@ -524,9 +526,9 @@ The commands work as following:
                                                                     Use --enabletun to activate using TUN devices rather than user space network.
                                                                     Requires sudo/admin shells.
 
-    ios tunnel stop --udid=<udid>                                   Stop the tunnel for one device without stopping the tunnel agent.
+    ios tunnel stop -u <udid>                                      Stop the tunnel for one device without stopping the tunnel agent.
 
-    ios tunnel refresh --udid=<udid>                                Stop the tunnel for one device and wait until the agent recreates it.
+    ios tunnel refresh -u <udid>                                    Stop the tunnel for one device and wait until the agent recreates it.
 
     ios tunnel start [options] [--pair-record-path=<pairrecordpath>] [--enabletun]
                                                                     Creates a tunnel connection to the device.
@@ -538,7 +540,7 @@ The commands work as following:
                                                                     writable directory instead (e.g. --pair-record-path=/Users/Shared/go-ios) and go-ios
                                                                     will manage its own tunnel identity. See https://github.com/bingyuegong/go-ios/issues/710
                                                                     If nothing is specified, the current dir is used for the pair record.
-                                                                    Pass --udid=<udid> to restrict the agent to a single device (isolated
+                                                                    Pass -u <udid> to restrict the agent to a single device (isolated
                                                                     per-device tunnel agent); run one per device on its own --tunnel-info-port.
                                                                     This command needs to be executed with admin privileges.
                                                                     (On MacOS the process 'remoted' must be paused before starting a tunnel,
@@ -1235,7 +1237,7 @@ func printDeviceDate(device ios.DeviceEntry) {
 	}
 }
 
-func printInstalledApps(device ios.DeviceEntry, system bool, all bool, list bool, filesharing bool) {
+func printInstalledApps(device ios.DeviceEntry, system bool, all bool, list bool, filesharing bool, jsonOutput bool) {
 	svc, _ := installationproxy.New(device)
 	var err error
 	var response []installationproxy.AppInfo
@@ -1255,6 +1257,23 @@ func printInstalledApps(device ios.DeviceEntry, system bool, all bool, list bool
 	}
 	exitIfError("browsing "+appType+" apps failed", err)
 
+	if jsonOutput {
+		type appItem struct {
+			BundleID string `json:"bundleID"`
+			Name     string `json:"name"`
+			Version  string `json:"version"`
+		}
+		items := make([]appItem, 0, len(response))
+		for _, v := range response {
+			items = append(items, appItem{
+				BundleID: v.CFBundleIdentifier(),
+				Name:     v.CFBundleName(),
+				Version:  v.CFBundleShortVersionString(),
+			})
+		}
+		fmt.Println(convertToJSONString(items))
+		return
+	}
 	if list {
 		for _, v := range response {
 			fmt.Printf("%s %s %s\n", v.CFBundleIdentifier(), v.CFBundleName(), v.CFBundleShortVersionString())
@@ -1269,10 +1288,9 @@ func printInstalledApps(device ios.DeviceEntry, system bool, all bool, list bool
 		}
 		return
 	}
-	if JSONdisabled {
-		slog.Info("apps", "apps", response)
-	} else {
-		fmt.Println(convertToJSONString(response))
+	// 默认输出：包名 应用名 版本号（每行一个）
+	for _, v := range response {
+		fmt.Printf("%s %s %s\n", v.CFBundleIdentifier(), v.CFBundleName(), v.CFBundleShortVersionString())
 	}
 }
 
@@ -1374,33 +1392,26 @@ func processList(device ios.DeviceEntry, applicationsOnly bool) {
 	}
 }
 
-func printDeviceList(details bool) {
+func printDeviceList(jsonOutput bool) {
 	deviceList, err := ios.ListDevices()
 	if err != nil {
 		exitIfError("failed getting device list", err)
 	}
 
-	if details {
-		if JSONdisabled {
-			outputDetailedListNoJSON(deviceList)
-		} else {
-			outputDetailedList(deviceList)
-		}
+	if jsonOutput {
+		outputDetailedList(deviceList)
 	} else {
-		if JSONdisabled {
-			fmt.Print(deviceList.String())
-		} else {
-			fmt.Println(convertToJSONString(deviceList.CreateMapForJSONConverter()))
-		}
+		outputDetailedListNoJSON(deviceList)
 	}
 }
 
 type detailsEntry struct {
-	Udid           string
-	ProductName    string
-	ProductType    string
+	UDID           string
+	SerialNumber   string
+	Name           string
+	MarketName     string
 	ProductVersion string
-	ConnectionType string
+	ConnType       string
 }
 
 func outputDetailedList(deviceList ios.DeviceList) {
@@ -1410,24 +1421,31 @@ func outputDetailedList(deviceList ios.DeviceList) {
 		allValues, err := ios.GetValues(device)
 		exitIfError("failed getting values", err)
 		result[i] = detailsEntry{
-			Udid:           udid,
-			ProductName:    allValues.Value.ProductName,
-			ProductType:    allValues.Value.ProductType,
+			UDID:           udid,
+			SerialNumber:   allValues.Value.SerialNumber,
+			Name:           allValues.Value.DeviceName,
+			MarketName:     allValues.Value.HardwareModel,
 			ProductVersion: allValues.Value.ProductVersion,
-			ConnectionType: device.ConnectionTypeLabel(),
+			ConnType:       device.ConnectionTypeLabel(),
 		}
 	}
-	fmt.Println(convertToJSONString(map[string][]detailsEntry{
-		"deviceList": result,
-	}))
+	fmt.Println(convertToJSONString(result))
 }
 
 func outputDetailedListNoJSON(deviceList ios.DeviceList) {
+	fmt.Printf("%-26s  %-15s  %-20s  %-20s  %-15s  %s\n",
+		"UDID", "SerialNumber", "NAME", "MarketName", "ProductVersion", "ConnType")
 	for _, device := range deviceList.DeviceList {
 		udid := device.Properties.SerialNumber
 		allValues, err := ios.GetValues(device)
 		exitIfError("failed getting values", err)
-		fmt.Printf("%s  %s  %s  %s  %s\n", udid, allValues.Value.ProductName, allValues.Value.ProductType, allValues.Value.ProductVersion, device.ConnectionTypeLabel())
+		fmt.Printf("%-26s  %-15s  %-20s  %-20s  %-15s  %s\n",
+			udid,
+			allValues.Value.SerialNumber,
+			allValues.Value.DeviceName,
+			allValues.Value.HardwareModel,
+			allValues.Value.ProductVersion,
+			device.ConnectionTypeLabel())
 	}
 }
 

@@ -119,7 +119,7 @@ func runImageCommand(ctx commandContext) {
 		listMountedImages(ctx.Device)
 	}
 
-	imagePath, _ := ctx.Args.String("--path")
+	imagePath, _ := ctx.Args.String("-p")
 	auto, _ := ctx.Args.Bool("auto")
 	if auto {
 		basedir, _ := ctx.Args.String("--basedir")
