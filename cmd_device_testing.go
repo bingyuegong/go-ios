@@ -13,9 +13,9 @@ import (
 )
 
 func runTestCommand(ctx commandContext) {
-	bundleID, _ := ctx.Args.String("<bundleid>")
-	testRunnerBundleId, _ := ctx.Args.String("<testrunnerbundleid>")
-	xctestConfig, _ := ctx.Args.String("<xctestconfig>")
+	bundleID, _ := ctx.Args.String("--bundle-id")
+	testRunnerBundleId, _ := ctx.Args.String("--test-runner-bundle-id")
+	xctestConfig, _ := ctx.Args.String("--xctest-config")
 
 	testsToRunArg := ctx.Args["--test-to-run"]
 	var testsToRun []string
@@ -77,7 +77,7 @@ func runTestCommand(ctx commandContext) {
 }
 
 func runXCTestCommand(ctx commandContext) {
-	xctestrunFilePath, _ := ctx.Args.String("<xctestrunFilePath>")
+	xctestrunFilePath, _ := ctx.Args.String("--xctestrun-file-path")
 
 	rawTestlog, rawTestlogErr := ctx.Args.String("<file>")
 
@@ -109,9 +109,9 @@ func runXCTestCommand(ctx commandContext) {
 }
 
 func runWDACommand(ctx commandContext) {
-	bundleID, _ := ctx.Args.String("<bundleid>")
-	testbundleID, _ := ctx.Args.String("<testbundleid>")
-	xctestconfig, _ := ctx.Args.String("<xctestconfig>")
+	bundleID, _ := ctx.Args.String("--bundleid")
+	testbundleID, _ := ctx.Args.String("--testrunnerbundleid")
+	xctestconfig, _ := ctx.Args.String("--xctestconfig")
 	wdaargsRaw, _ := ctx.Args["<a>"].([]string)
 	if wdaargsRaw == nil {
 		wdaargsRaw = []string{}

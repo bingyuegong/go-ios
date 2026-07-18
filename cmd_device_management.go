@@ -20,8 +20,8 @@ func runActivateCommand(ctx commandContext) {
 }
 
 func runLangCommand(ctx commandContext) {
-	locale, _ := ctx.Args.String("<locale>")
-	newlang, _ := ctx.Args.String("<newlang>")
+	locale, _ := ctx.Args.String("--setlocale")
+	newlang, _ := ctx.Args.String("--setlang")
 	slog.Debug("lang", "setlocale", locale, "setlang", newlang)
 	language(ctx.Device, locale, newlang)
 }
@@ -44,9 +44,9 @@ func runEraseCommand(ctx commandContext) {
 }
 
 func runWifiCommand(ctx commandContext) {
-	ssid, _ := ctx.Args.String("<ssid>")
-	psw, _ := ctx.Args.String("<password>")
-	encType, _ := ctx.Args.String("<encType>")
+	ssid, _ := ctx.Args.String("--ssid")
+	psw, _ := ctx.Args.String("--password")
+	encType, _ := ctx.Args.String("--enc-type")
 	remove, _ := ctx.Args.Bool("--remove")
 
 	if encType == "" {
@@ -103,11 +103,11 @@ func runPrepareCommand(ctx commandContext) {
 		skip = skipArg
 	}
 
-	certfile, _ := ctx.Args.String("<cert_file_path>")
-	orgname, _ := ctx.Args.String("<org_name>")
-	locale, _ := ctx.Args.String("<locale>")
-	lang, _ := ctx.Args.String("<lang>")
-	p12password, _ := ctx.Args.String("<p12password>")
+	certfile, _ := ctx.Args.String("--certfile")
+	orgname, _ := ctx.Args.String("--orgname")
+	locale, _ := ctx.Args.String("--locale")
+	lang, _ := ctx.Args.String("--lang")
+	p12password, _ := ctx.Args.String("--p12password")
 	if p12password == "" {
 		p12password = os.Getenv("P12_PASSWORD")
 	}
@@ -127,12 +127,12 @@ func runPrepareCommand(ctx commandContext) {
 
 func runSetWallpaperCommand(ctx commandContext) {
 	imagePath, _ := ctx.Args.String("<imagePath>")
-	p12file, _ := ctx.Args.String("<p12file>")
-	p12password, _ := ctx.Args.String("<password>")
+	p12file, _ := ctx.Args.String("--p12file")
+	p12password, _ := ctx.Args.String("--password")
 	if p12password == "" {
 		p12password = os.Getenv("P12_PASSWORD")
 	}
-	screen, _ := ctx.Args.String("<screen>")
+	screen, _ := ctx.Args.String("--screen")
 	if screen == "" {
 		screen = "home"
 	}
@@ -140,7 +140,7 @@ func runSetWallpaperCommand(ctx commandContext) {
 }
 
 func runGetWallpaperCommand(ctx commandContext) {
-	out, _ := ctx.Args.String("<outfile>")
+	out, _ := ctx.Args.String("--output")
 	if out == "" {
 		out = "wallpaper.png"
 	}
@@ -148,7 +148,7 @@ func runGetWallpaperCommand(ctx commandContext) {
 }
 
 func runGetIconLayoutCommand(ctx commandContext) {
-	out, _ := ctx.Args.String("<outfile>")
+	out, _ := ctx.Args.String("--output")
 	handleGetIconLayout(ctx.Device, out)
 }
 
@@ -171,8 +171,8 @@ func runHTTPProxyCommand(ctx commandContext) {
 	if pass == "" {
 		pass = os.Getenv("PROXY_PASSWORD")
 	}
-	p12file, _ := ctx.Args.String("<p12file>")
-	p12password, _ := ctx.Args.String("<password>")
+	p12file, _ := ctx.Args.String("--p12file")
+	p12password, _ := ctx.Args.String("--password")
 	if p12password == "" {
 		p12password = os.Getenv("P12_PASSWORD")
 	}
@@ -190,8 +190,8 @@ func runProfileCommand(ctx commandContext) {
 	}
 	if add, _ := ctx.Args.Bool("add"); add {
 		name, _ := ctx.Args.String("<profileFile>")
-		p12file, _ := ctx.Args.String("<orgid>")
-		p12password, _ := ctx.Args.String("<p12password>")
+		p12file, _ := ctx.Args.String("--p12file")
+		p12password, _ := ctx.Args.String("--p12password")
 		if p12password == "" {
 			p12password = os.Getenv("P12_PASSWORD")
 		}

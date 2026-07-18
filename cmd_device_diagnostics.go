@@ -34,8 +34,8 @@ func runInfoCommand(ctx commandContext) {
 
 func runScreenshotCommand(ctx commandContext) {
 	stream, _ := ctx.Args.Bool("--stream")
-	port, _ := ctx.Args.String("<port>")
-	path, _ := ctx.Args.String("<outfile>")
+	port, _ := ctx.Args.String("--port")
+	path, _ := ctx.Args.String("--output")
 	if stream {
 		if port == "" {
 			port = "3333"
@@ -148,7 +148,7 @@ func runLockdownCommand(ctx commandContext) {
 			key = keys[0]
 		}
 	}
-	domain, _ := ctx.Args.String("<domain>")
+	domain, _ := ctx.Args.String("--domain")
 
 	lockdownConnection, err := ios.ConnectLockdownWithSession(ctx.Device)
 	exitIfError("failed connecting to lockdown", err)

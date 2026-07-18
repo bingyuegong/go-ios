@@ -86,8 +86,8 @@ func runMemlimitOffCommand(ctx commandContext) {
 func runKillCommand(ctx commandContext) {
 	var response []installationproxy.AppInfo
 	bundleID, _ := ctx.Args.String("<bundleID>")
-	processIDint, _ := ctx.Args.Int("<processID>")
-	processName, _ := ctx.Args.String("<processName>")
+	processIDint, _ := ctx.Args.Int("--pid")
+	processName, _ := ctx.Args.String("--process")
 
 	processID := uint64(processIDint)
 
