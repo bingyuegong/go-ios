@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strconv"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -52,6 +53,39 @@ var (
 	JSONdisabled = false
 	prettyJSON   = false
 )
+
+// shortFlagRe 匹配单横线多字符选项，如 -app、-bundleid、-p12file、-test-to-run 等。
+// 单字母选项（如 -u、-v、-h、-J、-p、-t）不在转换范围内。
+var shortFlagRe = regexp.MustCompile(`^-([a-zA-Z][a-zA-Z0-9-]+)$`)
+
+// normalizeShortFlags 将 os.Args 中的单横线多字符选项转换为双横线形式，
+// 例如 -app 转为 --app，-bundleid 转为 --bundleid。
+// 这样用户可以使用简化的单横线形式，同时 docopt 也能正确解析。
+func normalizeShortFlags(args []string) []string {
+	result := make([]string, len(args))
+	for i, arg := range args {
+		if shortFlagRe.MatchString(arg) {
+			result[i] = "-" + arg // 单横线变双横线：-xxx -> --xxx
+		} else {
+			result[i] = arg
+		}
+	}
+	return result
+}
+
+// usageShortFlagRe 匹配 usage 字符串中的单横线多字符选项。
+// 匹配规则：以字母开头，后面跟至少一个字母、数字或连字符，整体长度至少2个字符（不含横线）。
+var usageShortFlagRe = regexp.MustCompile(`(^|[\s\[(|])(-[a-zA-Z][a-zA-Z0-9-]+)`)
+
+// normalizeUsageFlags 将 usage 字符串中的单横线多字符选项转换为双横线形式，
+// 避免 docopt 在解析 Usage 模式时把 -xxx 的首字母当作短选项处理。
+func normalizeUsageFlags(usage string) string {
+	return usageShortFlagRe.ReplaceAllStringFunc(usage, func(match string) string {
+		// 找到选项部分（以 - 开头）并替换为 --
+		idx := strings.Index(match, "-")
+		return match[:idx] + "-" + match[idx:] // 在 - 前再加一个 -
+	})
+}
 
 func main() {
 	Main()
@@ -100,12 +134,12 @@ Usage:
   ios diskspace [options]
   ios dproxy [--binary] [-mode <all(default)|usbmuxd|utun>] [-iface <iface>] [options]
   ios erase [--force] [options]
-  ios file ls [-app <bundleID> | -app-group <groupID> | --crash | --temp] [-p <path>] [options]
-  ios file pull [-app <bundleID> | -app-group <groupID> | --crash | --temp] -remote <remotePath> -local <localPath> [options]
-  ios file push [-app <bundleID> | -app-group <groupID> | --crash | --temp] -local <localPath> -remote <remotePath> [options]
+  ios file ls [--app <bundleID> | --app-group <groupID> | --crash | --temp] [-p <path>] [options]
+  ios file pull [--app <bundleID> | --app-group <groupID> | --crash | --temp] -remote <remotePath> -local <localPath> [options]
+  ios file push [--app <bundleID> | --app-group <groupID> | --crash | --temp] -local <localPath> -remote <remotePath> [options]
   ios forward [options] [<hostPort> <targetPort>] [-port <mapping>]...
-  ios fsync [-app <bundleId>] [options] (pull | push) -srcPath <srcPath> -dstPath <dstPath>
-  ios fsync [-app <bundleId>] [options] (rm [--r] | tree | mkdir) -p <targetPath>
+  ios fsync [--app <bundleId>] [options] (pull | push) -srcPath <srcPath> -dstPath <dstPath>
+  ios fsync [--app <bundleId>] [options] (rm [--r] | tree | mkdir) -p <targetPath>
   ios httpproxy <host> <port> [<user>] [<pass>] -p12file <orgid> -password <p12password> [options]
   ios httpproxy remove [options]
   ios image auto [-basedir <where_dev_images_are_stored>] [options]
@@ -140,7 +174,7 @@ Usage:
   ios resetax [options]
   ios resetlocation [options]
   ios rsd ls [options]
-  ios runtest [-bundle-id <bundleid>] [-test-runner-bundle-id <testrunnerbundleid>] [-xctest-config <xctestconfig>] [-log-output <file>] [--xctest] [-test-to-run <tests>]... [-test-to-skip <tests>]... [-env <e>]... [options]
+  ios runtest [--bundle-id <bundleid>] [--test-runner-bundle-id <testrunnerbundleid>] [--xctest-config <xctestconfig>] [--log-output <file>] [--xctest] [--test-to-run <tests>]... [--test-to-skip <tests>]... [-env <e>]... [options]
   ios runwda [-bundleid <bundleid>] [-testrunnerbundleid <testbundleid>] [-xctestconfig <xctestconfig>] [-log-output <file>] [-arg <a>]... [-env <e>]... [options]
   ios runxctest [-xctestrun-file-path <xctestrunFilePath>] [-log-output <file>] [options]
   ios screenshot [options] [-output <outfile>] [--stream] [-port <port>]
@@ -225,6 +259,76 @@ Options:
   -driver <driver>          UI automation backend: devicekit, wda, or auto. Defaults to devicekit.
   -wda-url <url>            WebDriverAgent base URL. Defaults to http://127.0.0.1:8100 or GO_IOS_WDA_URL.
   -devicekit-url <url>      DeviceKit base URL. Defaults to http://127.0.0.1:12004 or GO_IOS_DEVICEKIT_URL.
+  --app <bundleID>          App bundle ID for file/fsync commands.
+  --app-group <groupID>     App group ID for file commands.
+  -arg <a>                  App launch argument.
+  -basedir <where_dev_images_are_stored>  Base directory for developer images.
+  -bitrate <bitrate>        Video bitrate.
+  -body <json>              Request body JSON.
+  -body-file <file>         Request body file path.
+  --bundle-id <bundleID>    Bundle ID.
+  -bundle-name <name>       Bundle name.
+  -bundleid <bundleid>      Bundle ID (alternate form).
+  -certfile <cert_file_path>  Certificate file path.
+  -device-name <name>       Device name.
+  -domain <domain>          Lockdown domain.
+  -duration <seconds>       Duration in seconds.
+  -enc-type <encType>       WiFi encryption type.
+  -env <e>                  Environment variable (KEY=VALUE).
+  -exclude <excludestr>     Exclude filter string.
+  -font <fontSize>          Font size.
+  -fps <fps>                Frames per second.
+  -from-x <x>              Swipe start X coordinate.
+  -from-y <y>              Swipe start Y coordinate.
+  -gpxfilepath <gpxfilepath>  GPX file path.
+  -host <host>              Host address.
+  -host-port <port>         Host port.
+  -http-path <path>         HTTP path.
+  -iface <iface>            Network interface.
+  -lang <lang>              Language code.
+  -lat <lat>                Latitude.
+  -level <levels>           Log level.
+  -local <localPath>        Local file path.
+  -locale <locale>          Locale code.
+  --log-output <file>       Log output file.
+  -lon <lon>                Longitude.
+  -match <matchstr>         Match filter string.
+  -method <method>          HTTP/RPC method.
+  -mode <all(default)|usbmuxd|utun>  Proxy mode.
+  -orgname <org_name>       Organization name.
+  -output <outfile>         Output file path.
+  -pair-record-path <pairrecordpath>  Pair record path.
+  -params <json>            RPC params JSON.
+  -params-file <file>       RPC params file path.
+  -password <password>      Password.
+  -pid <processID>          Process ID.
+  -port <port>              Port number.
+  -process <processName>    Process name.
+  -profile-name <name>      Profile name.
+  -profile-output <mobileprovision>  Profile output path.
+  -quality <quality>        Image/video quality.
+  -remote <remotePath>      Remote file path.
+  -rpc-method <method>      RPC method name.
+  -scale <scale>            Scale factor.
+  -screen <screen>          Screen target (home/lock/both).
+  -session-id <sessionid>   Session ID.
+  -setlang <newlang>        New language to set.
+  -setlocale <locale>       New locale to set.
+  -skip <option>            Prepare step to skip.
+  -ssid <ssid>              WiFi SSID.
+  -subsystem <sub>          Log subsystem filter.
+  --test-runner-bundle-id <testrunnerbundleid>  Test runner bundle ID.
+  -test-runner-bundleid <id>  Test runner bundle ID (alternate form).
+  --test-to-run <tests>     Test to run.
+  --test-to-skip <tests>    Test to skip.
+  -testrunnerbundleid <testbundleid>  Test runner bundle ID (alternate form 2).
+  -text <text>              Text to type.
+  -timeout <seconds>        Timeout in seconds.
+  -to-x <x>                Swipe end X coordinate.
+  -to-y <y>                Swipe end Y coordinate.
+  --xctest-config <xctestconfig>  XCTest configuration name.
+  -xctestconfig <xctestconfig>  XCTest configuration (alternate form).
+  -xctestrun-file-path <xctestrunFilePath>  Path to .xctestrun file.
 
 The commands work as following:
   The default output of all commands is JSON. Should you prefer human readable outout, specify the --nojson option with your command.
@@ -561,6 +665,12 @@ The commands work as following:
                                                                     iOS 11+ only (Use --force to try on older versions).
 
   `, version)
+	// 将 os.Args 中的单横线多字符选项（如 -app、-bundleid）转换为双横线形式（--app、--bundleid），
+	// 以兼容用户的简化输入，同时让 docopt 能正确解析。
+	os.Args = normalizeShortFlags(os.Args)
+	// 同步修正 usage 字符串，把其中的单横线多字符选项也改为双横线，
+	// 避免 docopt 在解析 Usage 模式时把 -xxx 的首字母当作短选项处理。
+	usage = normalizeUsageFlags(usage)
 	arguments, err := docopt.ParseDoc(usage)
 	exitIfError("failed parsing args", err)
 	configureCLI(arguments)

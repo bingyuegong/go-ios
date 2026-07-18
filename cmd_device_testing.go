@@ -17,13 +17,13 @@ func runTestCommand(ctx commandContext) {
 	testRunnerBundleId, _ := ctx.Args.String("<testrunnerbundleid>")
 	xctestConfig, _ := ctx.Args.String("<xctestconfig>")
 
-	testsToRunArg := ctx.Args["-test-to-run"]
+	testsToRunArg := ctx.Args["--test-to-run"]
 	var testsToRun []string
 	if testsToRunArg != nil && len(testsToRunArg.([]string)) > 0 {
 		testsToRun = testsToRunArg.([]string)
 	}
 
-	testsToSkipArg := ctx.Args["-test-to-skip"]
+	testsToSkipArg := ctx.Args["--test-to-skip"]
 	var testsToSkip []string
 	if testsToSkipArg != nil && len(testsToSkipArg.([]string)) > 0 {
 		testsToSkip = testsToSkipArg.([]string)

@@ -22,7 +22,7 @@ func TestResolveHelp_StripsGlobalFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load help catalog: %v", err)
 	}
-	topic, handled := c.ResolveHelp([]string{"--udid=abc", "help", "apps"})
+	topic, handled := c.ResolveHelp([]string{"-u", "abc", "help", "apps"})
 	if !handled {
 		t.Fatal("expected help to be handled")
 	}

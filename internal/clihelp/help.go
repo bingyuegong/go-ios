@@ -77,10 +77,15 @@ func parseCatalogYAML(data []byte) (*Catalog, error) {
 			}
 		}
 		for _, token := range tokens {
+			// 支持两种 value flag 格式："-u=<udid>" 或 "-u <udid>"
 			isValueFlag := strings.Contains(token, "=")
 			base := token
 			if isValueFlag {
 				base = token[:strings.Index(token, "=")]
+				c.globalValFlags[base] = struct{}{}
+			} else if spaceIdx := strings.Index(token, " "); spaceIdx != -1 {
+				// 空格分隔形式，如 "-u <udid>"
+				base = token[:spaceIdx]
 				c.globalValFlags[base] = struct{}{}
 			} else {
 				c.globalBoolFlags[token] = struct{}{}
