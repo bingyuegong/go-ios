@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -47,13 +48,28 @@ func (r *tunnelPortRegistry) load() tunnelPortRecord {
 	return rec
 }
 
-// save 将注册表写入文件
+// save 将注册表写入文件，并在 sudo 环境下将文件 owner 改回实际登录用户，
+// 避免 tunnel start（需要 sudo）写入的文件归 root 所有，导致普通用户无法写入。
 func (r *tunnelPortRegistry) save(rec tunnelPortRecord) error {
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(r.path, data, 0644)
+	if err := os.WriteFile(r.path, data, 0644); err != nil {
+		return err
+	}
+	// 若在 sudo 环境下运行，将文件 owner 改回实际登录用户
+	if uidStr := os.Getenv("SUDO_UID"); uidStr != "" {
+		uid, uidErr := strconv.Atoi(uidStr)
+		gid := -1
+		if gidStr := os.Getenv("SUDO_GID"); gidStr != "" {
+			gid, _ = strconv.Atoi(gidStr)
+		}
+		if uidErr == nil {
+			_ = os.Chown(r.path, uid, gid)
+		}
+	}
+	return nil
 }
 
 // Register 注册 udid 对应的 tunnelInfoPort

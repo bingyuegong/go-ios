@@ -106,10 +106,13 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 		}
 		port := tunnelPortForUDID(ctx, udid)
 		err := tunnel.StopTunnelForDevice(udid, ctx.TunnelInfoHost, port)
-		exitIfError("failed to stop tunnel", err)
-		// 从本地注册表删除端口记录
+		// 无论 stop 是否成功（agent 可能已不在），都清除注册表记录
 		if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
 			slog.Warn("failed to unregister tunnel port", "udid", udid, "error", regErr)
+		}
+		if err != nil {
+			// agent 已不在时 connection refused 属于正常情况，降级为 WARN
+			slog.Warn("failed to stop tunnel (agent may already be gone)", "udid", udid, "error", err)
 		}
 		if JSONdisabled {
 			fmt.Printf("Stopped tunnel for %s\n", udid)

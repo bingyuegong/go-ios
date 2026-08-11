@@ -1547,7 +1547,7 @@ type detailsEntry struct {
 	MarketName     string
 	ProductVersion string
 	ConnType       string
-	TunnelInfoPort int `json:",omitempty"`
+	TunnelInfoPort *int `json:"TunnelInfoPort"` // 查不到时为 null，保证 JSON 字段完整性
 }
 
 func outputDetailedList(deviceList ios.DeviceList) {
@@ -1569,7 +1569,7 @@ func outputDetailedList(deviceList ios.DeviceList) {
 			ConnType:       device.ConnectionTypeLabel(),
 		}
 		if port, ok := portMap[udid]; ok {
-			entry.TunnelInfoPort = port
+			entry.TunnelInfoPort = &port
 		}
 		result[i] = entry
 	}
@@ -2007,6 +2007,8 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 		if regErr := globalTunnelPortRegistry.Register(udid, tunnelInfoPort); regErr != nil {
 			slog.Warn("failed to register tunnel port", "udid", udid, "port", tunnelInfoPort, "error", regErr)
 		}
+		// 后台监听设备插拔事件，设备拔出时自动清除注册表记录
+		go watchDeviceDetach(ctx, udid)
 	}
 	// Always derive userspace listener ports from THIS agent's tunnel-info port
 	// (not the global default), so several agents on different ports — e.g. a
@@ -2038,6 +2040,59 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 	}()
 	slog.Info("Tunnel server started")
 	<-ctx.Done()
+	// ctx 取消（Ctrl+C / tunnel stop）时，清除本设备的注册表记录
+	if udid != "" {
+		if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
+			slog.Warn("failed to unregister tunnel port on exit", "udid", udid, "error", regErr)
+		}
+	}
+}
+
+// watchDeviceDetach 在后台监听 usbmuxd 的设备插拔事件。
+// 当指定 udid 的设备拔出时，自动从本地注册表清除其端口记录。
+// 随 ctx 取消而退出。
+func watchDeviceDetach(ctx context.Context, udid string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		receiver, closeFn, err := ios.Listen()
+		if err != nil {
+			slog.Debug("watchDeviceDetach: failed to connect to usbmuxd, retrying in 3s", "error", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
+			continue
+		}
+
+		for {
+			msg, err := receiver()
+			if err != nil {
+				closeFn()
+				slog.Debug("watchDeviceDetach: listen error, reconnecting", "error", err)
+				break
+			}
+			if msg.DeviceDetached() && msg.Properties.SerialNumber == udid {
+				slog.Info("device detached, removing tunnel port from registry", "udid", udid)
+				if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
+					slog.Warn("watchDeviceDetach: failed to unregister tunnel port", "udid", udid, "error", regErr)
+				}
+				closeFn()
+				return
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 func deviceWithRsdProvider(device ios.DeviceEntry, udid string, address string, rsdPort int) ios.DeviceEntry {
