@@ -88,6 +88,12 @@ func startAgentFromEnvironment() {
 }
 
 func warnIfAgentIsNotRunning() {
+	// 若注册表中存在 per-device tunnel 端口记录，说明用户采用的是
+	// 每台设备独立端口的启动方式（ios tunnel start -u <udid> --tunnel-info-port <port>），
+	// 此时默认的 60105 端口上不会有 agent，跳过 WARN 避免误导。
+	if len(globalTunnelPortRegistry.All()) > 0 {
+		return
+	}
 	if !tunnel.IsAgentRunning() {
 		slog.Warn("go-ios agent is not running. You might need to start it with 'ios tunnel start' for ios17+. Use ENABLE_GO_IOS_AGENT=user for userspace tunnel or ENABLE_GO_IOS_AGENT=kernel for kernel tunnel for the experimental daemon mode.")
 	}

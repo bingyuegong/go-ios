@@ -1,6 +1,11 @@
 package main
 
-import "github.com/docopt/docopt-go"
+import (
+	"fmt"
+	"os"
+
+	"github.com/docopt/docopt-go"
+)
 
 var preProxyCommands = []command{
 	{
@@ -31,6 +36,13 @@ var globalCommands = []command{
 		run:   runDeviceListCommand,
 	},
 	{
+		name: "check-port",
+		match: func(args docopt.Opts) bool {
+			return boolArg(args, "check-port")
+		},
+		run: runCheckPortCommand,
+	},
+	{
 		// `sign certificate appstoreconnect` mints an account-wide certificate and
 		// needs no device, so it is global (dispatched before device resolution).
 		name: "sign certificate",
@@ -43,6 +55,40 @@ var globalCommands = []command{
 
 func runListenCommand(ctx commandContext) {
 	startListening()
+}
+
+func runCheckPortCommand(ctx commandContext) {
+	udid, _ := ctx.Args.String("-u")
+	if udid == "" {
+		udid = os.Getenv("GO_IOS_UDID")
+	}
+	if udid == "" {
+		exitIfError("check-port requires -u <udid>", fmt.Errorf("-u is required"))
+	}
+
+	// 清除已断开设备的注册表记录
+	pruneDisconnectedTunnelPorts()
+
+	type checkPortResult struct {
+		UDID           string `json:"udid"`
+		TunnelInfoPort *int   `json:"tunnelInfoPort"`
+	}
+
+	port, ok := globalTunnelPortRegistry.Lookup(udid)
+	result := checkPortResult{UDID: udid}
+	if ok {
+		result.TunnelInfoPort = &port
+	}
+
+	if JSONdisabled {
+		if ok {
+			fmt.Printf("UDID: %s\nTunnelInfoPort: %d\n", udid, port)
+		} else {
+			fmt.Printf("UDID: %s\nTunnelInfoPort: None\n", udid)
+		}
+	} else {
+		fmt.Println(convertToJSONString(result))
+	}
 }
 
 // isDeviceListCommand matches the bare global `ios list`. globalCommands are

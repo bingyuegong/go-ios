@@ -32,6 +32,23 @@ func tunnelTargetUDID(args docopt.Opts) string {
 	return udid
 }
 
+// tunnelPortForUDID 返回指定 udid 应使用的 tunnel-info-port。
+// 若用户显式传了 --tunnel-info-port（即 ctx.TunnelInfoPort != 默认值），直接使用；
+// 否则从本地注册表查询，查不到则降级到默认 60105。
+func tunnelPortForUDID(ctx tunnelCommandContext, udid string) int {
+	_, explicitErr := ctx.Args.Int("--tunnel-info-port")
+	if explicitErr == nil {
+		// 用户显式指定了端口，直接使用
+		return ctx.TunnelInfoPort
+	}
+	if udid != "" {
+		if port, ok := globalTunnelPortRegistry.Lookup(udid); ok {
+			return port
+		}
+	}
+	return ctx.TunnelInfoPort // 降级到默认 60105
+}
+
 func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 	if !isTunnelCommand(ctx.Args) {
 		return false
@@ -87,8 +104,13 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 		if udid == "" {
 			exitIfError("failed to stop tunnel", fmt.Errorf("-u is required"))
 		}
-		err := tunnel.StopTunnelForDevice(udid, ctx.TunnelInfoHost, ctx.TunnelInfoPort)
+		port := tunnelPortForUDID(ctx, udid)
+		err := tunnel.StopTunnelForDevice(udid, ctx.TunnelInfoHost, port)
 		exitIfError("failed to stop tunnel", err)
+		// 从本地注册表删除端口记录
+		if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
+			slog.Warn("failed to unregister tunnel port", "udid", udid, "error", regErr)
+		}
 		if JSONdisabled {
 			fmt.Printf("Stopped tunnel for %s\n", udid)
 		} else {
@@ -99,7 +121,8 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 		if udid == "" {
 			exitIfError("failed to refresh tunnel", fmt.Errorf("-u is required"))
 		}
-		tun, err := tunnel.RefreshTunnelForDevice(udid, ctx.TunnelInfoHost, ctx.TunnelInfoPort, 30*time.Second)
+		port := tunnelPortForUDID(ctx, udid)
+		tun, err := tunnel.RefreshTunnelForDevice(udid, ctx.TunnelInfoHost, port, 30*time.Second)
 		exitIfError("failed to refresh tunnel", err)
 		if JSONdisabled {
 			fmt.Printf("Refreshed tunnel for %s\n  Address: %s\n  RsdPort: %d\n  UserspaceTUN: %v\n  UserspaceTUNPort: %d\n",
@@ -112,6 +135,10 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 		err := tunnel.CloseAgent()
 		if err != nil {
 			exitIfError("failed to close agent", err)
+		}
+		// stopagent 停止所有 tunnel，清空本地端口注册表
+		if regErr := globalTunnelPortRegistry.Clear(); regErr != nil {
+			slog.Warn("failed to clear tunnel port registry", "error", regErr)
 		}
 	}
 	return true

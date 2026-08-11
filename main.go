@@ -13,11 +13,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"sort"
 	"strconv"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -155,6 +155,7 @@ Usage:
   ios launch <bundleID> [--wait] [--kill-existing] [-arg <a>]... [-env <e>]... [options]
   ios list [-J] [options]
   ios listen [options]
+  ios check-port [-J] [options]
   ios lockdown get [<key>] [-domain <domain>] [options]
   ios memlimitoff (-process <processName>) [options]
   ios mobilegestalt <key>... [--plist] [options]
@@ -453,6 +454,11 @@ The commands work as following:
 
     ios list [-J] [options]                                             Prints a list of all connected devices. Default is table format, use -J for JSON output.
                                                                        If --details is specified, it includes version, name and model of each device.
+
+    ios check-port [-J] [options]                                      Query the tunnel-info port for the device specified by -u <udid>.
+                                                                       Returns the port number recorded when 'ios tunnel start -u <udid> --tunnel-info-port <port>' was run.
+                                                                       If no port is recorded for the device, returns null.
+                                                                       Use -J for JSON output (default), or --nojson for plain text.
 
     ios listen [options]                                               Keeps a persistent connection open and notifies about newly connected or disconnected devices.
 
@@ -1051,7 +1057,7 @@ func startAx(device ios.DeviceEntry, arguments docopt.Opts) {
 
 		conn.EnableSelectionMode()
 
-	size, _ := arguments.Float64("-font")
+		size, _ := arguments.Float64("-font")
 		if size != 0 {
 			conn.UpdateAccessibilitySetting("DYNAMIC_TYPE", size)
 		}
@@ -1497,6 +1503,28 @@ func processList(device ios.DeviceEntry, applicationsOnly bool) {
 	}
 }
 
+// pruneDisconnectedTunnelPorts 从本地注册表中清除当前未连接设备的端口记录。
+// 在 list / check-port 命令执行时调用，保持注册表与实际连接状态同步。
+func pruneDisconnectedTunnelPorts() {
+	deviceList, err := ios.ListDevices()
+	if err != nil {
+		slog.Warn("failed to list devices for pruning tunnel port registry", "error", err)
+		return
+	}
+	connectedUDIDs := make(map[string]struct{}, len(deviceList.DeviceList))
+	for _, device := range deviceList.DeviceList {
+		connectedUDIDs[device.Properties.SerialNumber] = struct{}{}
+	}
+	portMap := globalTunnelPortRegistry.All()
+	for udid := range portMap {
+		if _, connected := connectedUDIDs[udid]; !connected {
+			if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
+				slog.Warn("failed to unregister disconnected device tunnel port", "udid", udid, "error", regErr)
+			}
+		}
+	}
+}
+
 func printDeviceList(jsonOutput bool) {
 	deviceList, err := ios.ListDevices()
 	if err != nil {
@@ -1506,6 +1534,8 @@ func printDeviceList(jsonOutput bool) {
 	if jsonOutput {
 		outputDetailedList(deviceList)
 	} else {
+		// 非 JSON 输出时也清除已断开设备的注册表记录
+		pruneDisconnectedTunnelPorts()
 		outputDetailedListNoJSON(deviceList)
 	}
 }
@@ -1517,15 +1547,20 @@ type detailsEntry struct {
 	MarketName     string
 	ProductVersion string
 	ConnType       string
+	TunnelInfoPort int `json:",omitempty"`
 }
 
 func outputDetailedList(deviceList ios.DeviceList) {
 	result := make([]detailsEntry, len(deviceList.DeviceList))
+	// 清除已断开设备的注册表记录，再读取最新端口映射
+	pruneDisconnectedTunnelPorts()
+	portMap := globalTunnelPortRegistry.All()
+
 	for i, device := range deviceList.DeviceList {
 		udid := device.Properties.SerialNumber
 		allValues, err := ios.GetValues(device)
 		exitIfError("failed getting values", err)
-		result[i] = detailsEntry{
+		entry := detailsEntry{
 			UDID:           udid,
 			SerialNumber:   allValues.Value.SerialNumber,
 			Name:           allValues.Value.DeviceName,
@@ -1533,6 +1568,10 @@ func outputDetailedList(deviceList ios.DeviceList) {
 			ProductVersion: allValues.Value.ProductVersion,
 			ConnType:       device.ConnectionTypeLabel(),
 		}
+		if port, ok := portMap[udid]; ok {
+			entry.TunnelInfoPort = port
+		}
+		result[i] = entry
 	}
 	fmt.Println(convertToJSONString(result))
 }
@@ -1964,6 +2003,10 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 	exitIfError("could not creat pair record manager", err)
 	if udid != "" {
 		slog.Info("restricting tunnel agent to a single device", "udid", udid, "tunnelInfoPort", tunnelInfoPort)
+		// 将 udid -> tunnelInfoPort 写入本地注册表，供 list / check-port 命令查询
+		if regErr := globalTunnelPortRegistry.Register(udid, tunnelInfoPort); regErr != nil {
+			slog.Warn("failed to register tunnel port", "udid", udid, "port", tunnelInfoPort, "error", regErr)
+		}
 	}
 	// Always derive userspace listener ports from THIS agent's tunnel-info port
 	// (not the global default), so several agents on different ports — e.g. a

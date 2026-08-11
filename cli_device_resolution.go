@@ -21,8 +21,21 @@ func tunnelInfoConfigFromArgs(arguments docopt.Opts) tunnelInfoConfig {
 	}
 
 	tunnelInfoPort, err := arguments.Int("--tunnel-info-port")
+	// 用户未显式指定 --tunnel-info-port 时，尝试从注册表按 udid 查询
 	if err != nil {
-		tunnelInfoPort = ios.HttpApiPort()
+		udid, _ := arguments.String("-u")
+		if udid == "" {
+			udid = os.Getenv("GO_IOS_UDID")
+		}
+		if udid != "" {
+			if registryPort, ok := globalTunnelPortRegistry.Lookup(udid); ok {
+				tunnelInfoPort = registryPort
+			} else {
+				tunnelInfoPort = ios.HttpApiPort() // 降级到默认 60105
+			}
+		} else {
+			tunnelInfoPort = ios.HttpApiPort() // 无 udid，使用默认 60105
+		}
 	}
 
 	return tunnelInfoConfig{
