@@ -1,119 +1,135 @@
 package main
 
 import (
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
+	"strings"
 )
 
-// tunnelPortRegistry 管理 udid -> tunnelInfoPort 的本地持久化映射
+// tunnelPortRegistry 管理 udid -> tunnelInfoPort 的本地持久化映射。
+//
+// 每台设备使用独立文件 ~/.go-ios-tunnels/<udid>.port，内容为端口号字符串。
+// 文件名即 udid，每台设备的操作完全独立，天然无竞争，无需任何锁。
 type tunnelPortRegistry struct {
-	mu   sync.Mutex
-	path string
-}
-
-// tunnelPortRecord 是注册表文件中的单条记录
-type tunnelPortRecord struct {
-	// Ports 是 udid -> tunnelInfoPort 的映射
-	Ports map[string]int `json:"ports"`
+	dir string // 存储目录，如 ~/.go-ios-tunnels
 }
 
 var globalTunnelPortRegistry = &tunnelPortRegistry{
-	path: defaultTunnelPortRegistryPath(),
+	dir: defaultTunnelPortRegistryDir(),
 }
 
-func defaultTunnelPortRegistryPath() string {
+func defaultTunnelPortRegistryDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".go-ios-tunnel-ports.json"
+		return ".go-ios-tunnels"
 	}
-	return filepath.Join(home, ".go-ios-tunnel-ports.json")
+	return filepath.Join(home, ".go-ios-tunnels")
 }
 
-// load 从文件加载注册表，文件不存在时返回空记录
-func (r *tunnelPortRegistry) load() tunnelPortRecord {
-	data, err := os.ReadFile(r.path)
-	if err != nil {
-		return tunnelPortRecord{Ports: map[string]int{}}
-	}
-	var rec tunnelPortRecord
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return tunnelPortRecord{Ports: map[string]int{}}
-	}
-	if rec.Ports == nil {
-		rec.Ports = map[string]int{}
-	}
-	return rec
+// portFilePath 返回指定 udid 的端口文件路径
+func (r *tunnelPortRegistry) portFilePath(udid string) string {
+	return filepath.Join(r.dir, udid+".port")
 }
 
-// save 将注册表写入文件，并在 sudo 环境下将文件 owner 改回实际登录用户，
-// 避免 tunnel start（需要 sudo）写入的文件归 root 所有，导致普通用户无法写入。
-func (r *tunnelPortRegistry) save(rec tunnelPortRecord) error {
-	data, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(r.path, data, 0644); err != nil {
-		return err
-	}
-	// 若在 sudo 环境下运行，将文件 owner 改回实际登录用户
-	if uidStr := os.Getenv("SUDO_UID"); uidStr != "" {
-		uid, uidErr := strconv.Atoi(uidStr)
-		gid := -1
-		if gidStr := os.Getenv("SUDO_GID"); gidStr != "" {
-			gid, _ = strconv.Atoi(gidStr)
-		}
-		if uidErr == nil {
-			_ = os.Chown(r.path, uid, gid)
-		}
-	}
-	return nil
+// ensureDir 确保存储目录存在
+func (r *tunnelPortRegistry) ensureDir() error {
+	return os.MkdirAll(r.dir, 0755)
 }
 
 // Register 注册 udid 对应的 tunnelInfoPort
 func (r *tunnelPortRegistry) Register(udid string, port int) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec := r.load()
-	rec.Ports[udid] = port
-	return r.save(rec)
+	if err := r.ensureDir(); err != nil {
+		return fmt.Errorf("Register: mkdir: %w", err)
+	}
+	data := []byte(strconv.Itoa(port))
+	if err := os.WriteFile(r.portFilePath(udid), data, 0644); err != nil {
+		return fmt.Errorf("Register: write: %w", err)
+	}
+	// sudo 环境下将文件 owner 改回实际登录用户
+	r.chownToRealUser(r.portFilePath(udid))
+	return nil
 }
 
 // Unregister 删除 udid 的端口记录
 func (r *tunnelPortRegistry) Unregister(udid string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec := r.load()
-	delete(rec.Ports, udid)
-	return r.save(rec)
+	err := os.Remove(r.portFilePath(udid))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("Unregister: %w", err)
+	}
+	return nil
 }
 
 // Lookup 查询 udid 对应的 tunnelInfoPort，未找到时返回 0, false
 func (r *tunnelPortRegistry) Lookup(udid string) (int, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec := r.load()
-	port, ok := rec.Ports[udid]
-	return port, ok
+	data, err := os.ReadFile(r.portFilePath(udid))
+	if err != nil {
+		return 0, false
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, false
+	}
+	return port, true
 }
 
 // All 返回所有 udid -> port 的映射副本
 func (r *tunnelPortRegistry) All() map[string]int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec := r.load()
-	result := make(map[string]int, len(rec.Ports))
-	for k, v := range rec.Ports {
-		result[k] = v
+	result := map[string]int{}
+	entries, err := os.ReadDir(r.dir)
+	if err != nil {
+		return result
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".port") {
+			continue
+		}
+		udid := strings.TrimSuffix(name, ".port")
+		data, err := os.ReadFile(filepath.Join(r.dir, name))
+		if err != nil {
+			continue
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			continue
+		}
+		result[udid] = port
 	}
 	return result
 }
 
 // Clear 清空所有记录
 func (r *tunnelPortRegistry) Clear() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.save(tunnelPortRecord{Ports: map[string]int{}})
+	entries, err := os.ReadDir(r.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("Clear: readdir: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".port") {
+			_ = os.Remove(filepath.Join(r.dir, entry.Name()))
+		}
+	}
+	return nil
+}
+
+// chownToRealUser 在 sudo 环境下将文件 owner 改回实际登录用户
+func (r *tunnelPortRegistry) chownToRealUser(path string) {
+	uidStr := os.Getenv("SUDO_UID")
+	if uidStr == "" {
+		return
+	}
+	uid, err := strconv.Atoi(uidStr)
+	if err != nil {
+		return
+	}
+	gid := -1
+	if gidStr := os.Getenv("SUDO_GID"); gidStr != "" {
+		gid, _ = strconv.Atoi(gidStr)
+	}
+	_ = os.Chown(path, uid, gid)
 }
