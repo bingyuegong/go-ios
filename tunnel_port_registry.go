@@ -10,10 +10,10 @@ import (
 
 // tunnelPortRegistry 管理 udid -> tunnelInfoPort 的本地持久化映射。
 //
-// 每台设备使用独立文件 ~/.go-ios-tunnels/<udid>.port，内容为端口号字符串。
+// 每台设备使用独立文件 <tmpdir>/go-ios-tunnels/<udid>.port，内容为端口号字符串。
 // 文件名即 udid，每台设备的操作完全独立，天然无竞争，无需任何锁。
 type tunnelPortRegistry struct {
-	dir string // 存储目录，如 ~/.go-ios-tunnels
+	dir string // 存储目录，如 /tmp/go-ios-tunnels
 }
 
 var globalTunnelPortRegistry = &tunnelPortRegistry{
@@ -21,11 +21,7 @@ var globalTunnelPortRegistry = &tunnelPortRegistry{
 }
 
 func defaultTunnelPortRegistryDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".go-ios-tunnels"
-	}
-	return filepath.Join(home, ".go-ios-tunnels")
+	return filepath.Join(os.TempDir(), "go-ios-tunnels")
 }
 
 // portFilePath 返回指定 udid 的端口文件路径
@@ -47,8 +43,6 @@ func (r *tunnelPortRegistry) Register(udid string, port int) error {
 	if err := os.WriteFile(r.portFilePath(udid), data, 0644); err != nil {
 		return fmt.Errorf("Register: write: %w", err)
 	}
-	// sudo 环境下将文件 owner 改回实际登录用户
-	r.chownToRealUser(r.portFilePath(udid))
 	return nil
 }
 
@@ -115,21 +109,4 @@ func (r *tunnelPortRegistry) Clear() error {
 		}
 	}
 	return nil
-}
-
-// chownToRealUser 在 sudo 环境下将文件 owner 改回实际登录用户
-func (r *tunnelPortRegistry) chownToRealUser(path string) {
-	uidStr := os.Getenv("SUDO_UID")
-	if uidStr == "" {
-		return
-	}
-	uid, err := strconv.Atoi(uidStr)
-	if err != nil {
-		return
-	}
-	gid := -1
-	if gidStr := os.Getenv("SUDO_GID"); gidStr != "" {
-		gid, _ = strconv.Atoi(gidStr)
-	}
-	_ = os.Chown(path, uid, gid)
 }
