@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -21,7 +22,14 @@ var globalTunnelPortRegistry = &tunnelPortRegistry{
 }
 
 func defaultTunnelPortRegistryDir() string {
-	return filepath.Join(os.TempDir(), "go-ios-tunnels")
+	if runtime.GOOS == "windows" {
+		// Windows 上 os.TempDir() 所有用户一致，直接使用
+		return filepath.Join(os.TempDir(), "go-ios-tunnels")
+	}
+	// macOS/Linux 使用固定路径 /tmp/go-ios-tunnels
+	// 避免 macOS 上 os.TempDir() 因用户身份不同（sudo vs 普通用户）返回不同路径
+	// sudo 运行时返回 /private/tmp，普通用户返回 /var/folders/...
+	return "/tmp/go-ios-tunnels"
 }
 
 // portFilePath 返回指定 udid 的端口文件路径
@@ -29,9 +37,14 @@ func (r *tunnelPortRegistry) portFilePath(udid string) string {
 	return filepath.Join(r.dir, udid+".port")
 }
 
-// ensureDir 确保存储目录存在
+// ensureDir 确保存储目录存在，并设置为全用户可读写（解决 sudo 创建后普通用户无法删除的问题）
 func (r *tunnelPortRegistry) ensureDir() error {
-	return os.MkdirAll(r.dir, 0755)
+	if err := os.MkdirAll(r.dir, 0777); err != nil {
+		return err
+	}
+	// 目录可能已存在但权限不对（如之前由 root 创建），强制修正
+	_ = os.Chmod(r.dir, 0777)
+	return nil
 }
 
 // Register 注册 udid 对应的 tunnelInfoPort
@@ -40,7 +53,7 @@ func (r *tunnelPortRegistry) Register(udid string, port int) error {
 		return fmt.Errorf("Register: mkdir: %w", err)
 	}
 	data := []byte(strconv.Itoa(port))
-	if err := os.WriteFile(r.portFilePath(udid), data, 0644); err != nil {
+	if err := os.WriteFile(r.portFilePath(udid), data, 0666); err != nil {
 		return fmt.Errorf("Register: write: %w", err)
 	}
 	return nil

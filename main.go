@@ -1987,6 +1987,22 @@ func pairDevice(device ios.DeviceEntry, orgIdentityP12File string, p12Password s
 }
 
 func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string, tunnelInfoPort int, userspaceTUN bool, udid string) {
+	// 包一层可取消的 ctx，用于捕获信号后触发清理
+	innerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// 监听 SIGTERM/SIGINT，收到后取消 innerCtx，确保进程被 kill 时也能执行清理逻辑
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case <-sigCh:
+			cancel()
+		case <-innerCtx.Done():
+		}
+	}()
+
 	// Optional profiling endpoint: set GO_IOS_PPROF=host:port (e.g. 127.0.0.1:6060)
 	// to expose net/http/pprof (CPU, heap, block and mutex profiles) on the agent.
 	if addr := os.Getenv("GO_IOS_PPROF"); addr != "" {
@@ -2008,7 +2024,7 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 			slog.Warn("failed to register tunnel port", "udid", udid, "port", tunnelInfoPort, "error", regErr)
 		}
 		// 后台监听设备插拔事件，设备拔出时自动清除注册表记录
-		go watchDeviceDetach(ctx, udid)
+		go watchDeviceDetach(innerCtx, udid)
 	}
 	// Always derive userspace listener ports from THIS agent's tunnel-info port
 	// (not the global default), so several agents on different ports — e.g. a
@@ -2021,10 +2037,10 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-innerCtx.Done():
 				return
 			case <-ticker.C:
-				err := tm.UpdateTunnels(ctx)
+				err := tm.UpdateTunnels(innerCtx)
 				if err != nil {
 					slog.Warn("failed to update tunnels", "error", err)
 				}
@@ -2039,8 +2055,8 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 		}
 	}()
 	slog.Info("Tunnel server started")
-	<-ctx.Done()
-	// ctx 取消（Ctrl+C / tunnel stop）时，清除本设备的注册表记录
+	<-innerCtx.Done()
+	// innerCtx 取消（Ctrl+C / SIGTERM / tunnel stop）时，清除本设备的注册表记录
 	if udid != "" {
 		if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
 			slog.Warn("failed to unregister tunnel port on exit", "udid", udid, "error", regErr)
