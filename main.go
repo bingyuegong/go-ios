@@ -2023,8 +2023,8 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 		if regErr := globalTunnelPortRegistry.Register(udid, tunnelInfoPort); regErr != nil {
 			slog.Warn("failed to register tunnel port", "udid", udid, "port", tunnelInfoPort, "error", regErr)
 		}
-		// 后台监听设备插拔事件，设备拔出时自动清除注册表记录
-		go watchDeviceDetach(innerCtx, udid)
+		// 后台监听设备插拔事件，设备拔出时清除注册表记录，重新插入时重新注册
+		go watchDeviceDetach(innerCtx, udid, tunnelInfoPort)
 	}
 	// Always derive userspace listener ports from THIS agent's tunnel-info port
 	// (not the global default), so several agents on different ports — e.g. a
@@ -2065,9 +2065,10 @@ func startTunnel(ctx context.Context, recordsPath string, tunnelInfoHost string,
 }
 
 // watchDeviceDetach 在后台监听 usbmuxd 的设备插拔事件。
-// 当指定 udid 的设备拔出时，自动从本地注册表清除其端口记录。
+// 当指定 udid 的设备拔出时，自动从本地注册表清除其端口记录；
+// 当设备重新插入时，重新写入注册表，保证 list / check-port 始终可查询到端口。
 // 随 ctx 取消而退出。
-func watchDeviceDetach(ctx context.Context, udid string) {
+func watchDeviceDetach(ctx context.Context, udid string, port int) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -2093,13 +2094,19 @@ func watchDeviceDetach(ctx context.Context, udid string) {
 				slog.Debug("watchDeviceDetach: listen error, reconnecting", "error", err)
 				break
 			}
-			if msg.DeviceDetached() && msg.Properties.SerialNumber == udid {
+			if msg.Properties.SerialNumber != udid {
+				continue
+			}
+			if msg.DeviceDetached() {
 				slog.Info("device detached, removing tunnel port from registry", "udid", udid)
 				if regErr := globalTunnelPortRegistry.Unregister(udid); regErr != nil {
 					slog.Warn("watchDeviceDetach: failed to unregister tunnel port", "udid", udid, "error", regErr)
 				}
-				closeFn()
-				return
+			} else if msg.DeviceAttached() {
+				slog.Info("device re-attached, re-registering tunnel port", "udid", udid, "port", port)
+				if regErr := globalTunnelPortRegistry.Register(udid, port); regErr != nil {
+					slog.Warn("watchDeviceDetach: failed to re-register tunnel port", "udid", udid, "port", port, "error", regErr)
+				}
 			}
 		}
 

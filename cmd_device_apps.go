@@ -50,8 +50,16 @@ func runLaunchCommand(ctx commandContext) {
 	if bKillExisting {
 		opts["KillExisting"] = 1
 	}
-	args := toArgs(ctx.Args["<a>"].([]string))
-	envs := toEnvs(ctx.Args["<e>"].([]string))
+	var rawArgs []string
+	if v, ok := ctx.Args["<a>"]; ok && v != nil {
+		rawArgs = v.([]string)
+	}
+	var rawEnvs []string
+	if v, ok := ctx.Args["<e>"]; ok && v != nil {
+		rawEnvs = v.([]string)
+	}
+	args := toArgs(rawArgs)
+	envs := toEnvs(rawEnvs)
 	pid, err := pControl.LaunchAppWithArgs(bundleID, args, envs, opts)
 	exitIfError("launch app command failed", err)
 	slog.Info("Process launched", "pid", pid)

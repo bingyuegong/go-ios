@@ -77,7 +77,14 @@ func resolveDevice(arguments docopt.Opts, tunnelInfo tunnelInfoConfig) ios.Devic
 		return device
 	}
 
-	info, err := tunnel.TunnelInfoForDevice(device.Properties.SerialNumber, tunnelInfo.Host, tunnelInfo.Port)
+	// tunnelInfoConfigFromArgs 在解析参数时可能还不知道真实 udid（未传 -u），
+	// 此处已拿到真实 udid，若注册表里有对应端口则优先使用。
+	resolvedPort := tunnelInfo.Port
+	if registryPort, ok := globalTunnelPortRegistry.Lookup(device.Properties.SerialNumber); ok {
+		resolvedPort = registryPort
+	}
+
+	info, err := tunnel.TunnelInfoForDevice(device.Properties.SerialNumber, tunnelInfo.Host, resolvedPort)
 	if err == nil {
 		device.UserspaceTUNPort = info.UserspaceTUNPort
 		device.UserspaceTUNHost = userspaceTunnelHost

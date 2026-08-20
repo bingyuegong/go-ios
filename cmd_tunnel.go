@@ -86,8 +86,40 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 		// as an isolated per-device tunnel agent (see NewTunnelManagerForDevice).
 		startTunnel(context.TODO(), pairRecordsPath, ctx.TunnelInfoHost, ctx.TunnelInfoPort, useUserspaceNetworking, tunnelTargetUDID(ctx.Args))
 	} else if listCommand {
-		tunnels, err := tunnel.ListRunningTunnels(ctx.TunnelInfoHost, ctx.TunnelInfoPort)
-		exitIfError("failed to get tunnel infos", err)
+		udid := tunnelTargetUDID(ctx.Args)
+		var (
+			tunnels []tunnel.Tunnel
+			err     error
+		)
+		if udid != "" {
+			// 指定了 -u，只查该设备对应的 agent
+			listPort := tunnelPortForUDID(ctx, udid)
+			tunnels, err = tunnel.ListRunningTunnels(ctx.TunnelInfoHost, listPort)
+			exitIfError("failed to get tunnel infos", err)
+		} else {
+			// 未指定 -u：遍历注册表中所有已知端口，聚合所有 agent 的 tunnel 列表
+			portMap := globalTunnelPortRegistry.All()
+			if len(portMap) == 0 {
+				// 注册表为空，降级到默认端口（兼容全局 agent 模式）
+				tunnels, err = tunnel.ListRunningTunnels(ctx.TunnelInfoHost, ctx.TunnelInfoPort)
+				exitIfError("failed to get tunnel infos", err)
+			} else {
+				// 去重：同一端口可能对应多台设备（理论上不会，但防御一下）
+				seenPorts := map[int]bool{}
+				for _, port := range portMap {
+					if seenPorts[port] {
+						continue
+					}
+					seenPorts[port] = true
+					ts, tsErr := tunnel.ListRunningTunnels(ctx.TunnelInfoHost, port)
+					if tsErr != nil {
+						slog.Warn("failed to get tunnel infos from agent", "port", port, "error", tsErr)
+						continue
+					}
+					tunnels = append(tunnels, ts...)
+				}
+			}
+		}
 		if JSONdisabled {
 			for index, t := range tunnels {
 				if 0 != index {
