@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // tunnelPortRegistry 管理 udid -> tunnelInfoPort 的本地持久化映射。
@@ -73,7 +76,7 @@ func (r *tunnelPortRegistry) Unregister(udid string) error {
 }
 
 // Lookup 查询 udid 对应的 tunnelInfoPort，未找到或记录失效时返回 0, false。
-// 失效判定：PID 不存在，或 PID 对应的进程不是 go-ios 相关进程。
+// 失效判定：PID 不存在、PID 对应的进程不是 go-ios 相关进程、或 HTTP 管理 API 不可达。
 // 失效时自动删除端口文件。
 func (r *tunnelPortRegistry) Lookup(udid string) (int, bool) {
 	filePath := r.portFilePath(udid)
@@ -92,7 +95,52 @@ func (r *tunnelPortRegistry) Lookup(udid string) (int, bool) {
 		_ = os.Remove(filePath)
 		return 0, false
 	}
+	// 进程存活，进一步通过 HTTP 探测信道是否真正可用
+	if !isTunnelReady(port, udid) {
+		// 信道不可用（API 不可达或 udid 不在列表中），删除失效文件
+		_ = os.Remove(filePath)
+		return 0, false
+	}
 	return port, true
+}
+
+// isTunnelReady 向 tunnel agent 的 HTTP 管理 API 发一次探测请求，
+// 解析响应体确认目标 udid 的 tunnel 已就绪。
+// GET http://127.0.0.1:<port>/tunnels，2 秒超时。
+// 判断规则：
+//   - udid 必须在返回列表中
+//   - userspace 模式（UserspaceTUN=true）：userspaceTunPort 必须非 0
+//   - 非 userspace 模式（UserspaceTUN=false）：udid 在列表中即可
+func isTunnelReady(port int, udid string) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/tunnels", port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var tunnels []struct {
+		Udid             string `json:"udid"`
+		UserspaceTUN     bool   `json:"userspaceTun"`
+		UserspaceTUNPort int    `json:"userspaceTunPort"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tunnels); err != nil {
+		return false
+	}
+	for _, t := range tunnels {
+		if t.Udid != udid {
+			continue
+		}
+		// userspace 模式：数据通道端口必须已分配
+		if t.UserspaceTUN && t.UserspaceTUNPort == 0 {
+			return false
+		}
+		return true
+	}
+	// udid 不在列表中（tunnel 正在重建或尚未建立）
+	return false
 }
 
 // All 返回所有 udid -> port 的映射副本（不做存活校验，仅解析文件内容）
