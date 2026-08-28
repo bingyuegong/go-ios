@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -106,14 +107,16 @@ func (r *tunnelPortRegistry) Lookup(udid string) (int, bool) {
 
 // isTunnelReady 向 tunnel agent 的 HTTP 管理 API 发一次探测请求，
 // 解析响应体确认目标 udid 的 tunnel 已就绪。
-// GET http://127.0.0.1:<port>/tunnels，2 秒超时。
+// GET http://127.0.0.1:<port>/tunnel/<udid>，5 秒超时（与 TunnelInfoForDevice 保持一致）。
 // 判断规则：
-//   - udid 必须在返回列表中
-//   - userspace 模式（UserspaceTUN=true）：userspaceTunPort 必须非 0
-//   - 非 userspace 模式（UserspaceTUN=false）：udid 在列表中即可
+//   - HTTP 200（404 表示 tunnel 不存在，其他非 200 表示异常，均视为不可用）
+//   - 响应体能成功解析为 Tunnel 结构体，且 udid 字段与请求一致
+//   - userspace 模式（UserspaceTUN=true）：userspaceTunPort 必须非 0，
+//     且对该端口做一次 TCP 探测，确认数据通道真实可达
+//   - 非 userspace 模式（UserspaceTUN=false）：上述条件满足即可
 func isTunnelReady(port int, udid string) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/tunnels", port))
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/tunnel/%s", port, udid))
 	if err != nil {
 		return false
 	}
@@ -121,26 +124,32 @@ func isTunnelReady(port int, udid string) bool {
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}
-	var tunnels []struct {
+	var t struct {
 		Udid             string `json:"udid"`
 		UserspaceTUN     bool   `json:"userspaceTun"`
 		UserspaceTUNPort int    `json:"userspaceTunPort"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&tunnels); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
 		return false
 	}
-	for _, t := range tunnels {
-		if t.Udid != udid {
-			continue
-		}
-		// userspace 模式：数据通道端口必须已分配
-		if t.UserspaceTUN && t.UserspaceTUNPort == 0 {
+	// 确认响应内容确实对应目标 udid（防御性校验）
+	if t.Udid != udid {
+		return false
+	}
+	// userspace 模式：数据通道端口必须已分配，且实际可达
+	if t.UserspaceTUN {
+		if t.UserspaceTUNPort == 0 {
 			return false
 		}
-		return true
+		// TCP 探测：仅验证 userspace 代理端口是否在监听，立即关闭连接
+		// 不写入路由头，不触发真实设备通信
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", t.UserspaceTUNPort), 2*time.Second)
+		if err != nil {
+			return false
+		}
+		conn.Close()
 	}
-	// udid 不在列表中（tunnel 正在重建或尚未建立）
-	return false
+	return true
 }
 
 // All 返回所有 udid -> port 的映射副本（不做存活校验，仅解析文件内容）
