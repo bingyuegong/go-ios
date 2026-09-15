@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -198,14 +197,12 @@ func parsePortPid(s string) (port int, pid int, ok bool) {
 
 // isPidAliveAndGoIos 检查指定 PID 的进程是否存活，且进程名包含 "go-ios"。
 // 两个条件都满足才返回 true。
+// 第一步的存活检测由平台适配函数 isPidAlive 实现：
+//   - Unix/macOS：发送 signal(0)，不实际发送信号
+//   - Windows：使用 OpenProcess + GetExitCodeProcess（Signal(0) 在 Windows 上不支持）
 func isPidAliveAndGoIos(pid int) bool {
-	// 第一步：检查进程是否存活（发送 signal 0，不实际发送信号）
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		// 进程不存在或无权限访问，视为已消亡
+	// 第一步：检查进程是否存活（平台适配）
+	if !isPidAlive(pid) {
 		return false
 	}
 
