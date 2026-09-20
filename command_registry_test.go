@@ -58,6 +58,21 @@ func TestTunnelCommandMatcher(t *testing.T) {
 	}
 }
 
+func TestScreencordCommandsRegisteredAsDeviceCommands(t *testing.T) {
+	for _, expected := range []string{"screenrecord_start", "screenrecord_stop", "screenrecord_status"} {
+		found := false
+		for _, registered := range deviceCommands {
+			if registered.name == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("device command %q is not registered", expected)
+		}
+	}
+}
+
 func TestNeedsAutomaticTunnelInfo(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -65,6 +80,11 @@ func TestNeedsAutomaticTunnelInfo(t *testing.T) {
 		want bool
 	}{
 		{name: "zoom stays tunnel-free", args: docopt.Opts{"zoom": true}, want: false},
+		{name: "delete testmanagerd recordings needs tunnel", args: docopt.Opts{"delete_all_testmanagerd_screenrecord": true}, want: true},
+		{name: "pull testmanagerd recording needs tunnel", args: docopt.Opts{"pull_testmanagerd_screenrecord": true}, want: true},
+		{name: "screencord start stays tunnel-free", args: docopt.Opts{"screenrecord_start": true}, want: false},
+		{name: "screencord stop stays tunnel-free", args: docopt.Opts{"screenrecord_stop": true}, want: false},
+		{name: "screencord status stays tunnel-free", args: docopt.Opts{"screenrecord_status": true}, want: false},
 		{name: "voiceover stays tunnel-free", args: docopt.Opts{"voiceover": true}, want: false},
 		{name: "assistivetouch stays tunnel-free", args: docopt.Opts{"assistivetouch": true}, want: false},
 		{name: "timeformat stays tunnel-free", args: docopt.Opts{"timeformat": true}, want: false},

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,6 +166,69 @@ func (c *Connection) ListDirectory(path string) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// RemoveFile removes one file from the current file service session.
+func (c *Connection) RemoveFile(path string) error {
+	return c.fileSystemOperation("RemoveFile", path)
+}
+
+// RemoveDirectory removes one directory from the current file service session.
+// The CoreDevice protocol does not expose a recursive flag, so callers must not
+// assume this removes non-empty directory trees.
+func (c *Connection) RemoveDirectory(path string) error {
+	return c.fileSystemOperation("RemoveDirectory", path)
+}
+
+func (c *Connection) fileSystemOperation(operationType, path string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	request, err := buildFileSystemOperationRequest(c.sessionID, operationType, path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", operationType, err)
+	}
+	if err := c.conn.Send(request, xpc.HeartbeatRequestFlag); err != nil {
+		return fmt.Errorf("%s: failed to send request: %w", operationType, err)
+	}
+
+	response, err := c.conn.ReceiveOnServerClientStream()
+	if err != nil {
+		return fmt.Errorf("%s: failed to receive response: %w", operationType, err)
+	}
+	if err := validateFileSystemOperationResponse(response); err != nil {
+		return fmt.Errorf("%s: %w", operationType, err)
+	}
+	return nil
+}
+
+func validateFileSystemOperationResponse(response map[string]interface{}) error {
+	if err := extractError(response); err != nil {
+		return err
+	}
+	responseCode, ok := response["Response"].(uint64)
+	if !ok || responseCode != 1 {
+		return fmt.Errorf("missing or unsuccessful Response value: %+v", response["Response"])
+	}
+	return nil
+}
+
+func buildFileSystemOperationRequest(sessionID, operationType, path string) (map[string]interface{}, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, fmt.Errorf("session ID is required")
+	}
+	if strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	if operationType != "RemoveFile" && operationType != "RemoveDirectory" {
+		return nil, fmt.Errorf("unsupported operation type %q", operationType)
+	}
+	return map[string]interface{}{
+		"Cmd":           "FileSystemOperation",
+		"SessionID":     sessionID,
+		"OperationType": operationType,
+		"Path":          path,
+	}, nil
 }
 
 // PullFile downloads a file from the device by streaming to an io.Writer.

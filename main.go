@@ -126,6 +126,7 @@ Usage:
   ios crash rm <cwd> <pattern> [options]
   ios date [options]
   ios debug [options] [--stop-at-entry] <app_path>
+  ios delete_all_testmanagerd_screenrecord [options]
   ios devicename [options]
   ios devicestate enable <profileTypeId> <profileId> [options]
   ios devicestate list [options]
@@ -170,13 +171,17 @@ Usage:
   ios profile list [options]
   ios profile remove <profileName> [options]
   ios ps [--apps] [options]
+  ios pull_testmanagerd_screenrecord --video-id <uuid> --output-dir <directory> [options]
+  ios screenrecord_start [-wda-url <url>] [options]
+  ios screenrecord_stop [-wda-url <url>] [options]
+  ios screenrecord_status [-wda-url <url>] [options]
   ios readpair [options]
   ios reboot [options]
   ios resetax [options]
   ios resetlocation [options]
   ios rsd ls [options]
   ios runtest [--bundle-id <bundleid>] [--test-runner-bundle-id <testrunnerbundleid>] [--xctest-config <xctestconfig>] [--log-output <file>] [--xctest] [--test-to-run <tests>]... [--test-to-skip <tests>]... [-env <e>]... [options]
-  ios runwda [-bundleid <bundleid>] [-testrunnerbundleid <testbundleid>] [-xctestconfig <xctestconfig>] [-log-output <file>] [-arg <a>]... [-env <e>]... [options]
+  ios runwda [-bundleid <bundleid>] [-testrunnerbundleid <testbundleid>] [-xctestconfig <xctestconfig>] [-log-output <file>] [-attachments-dir <attachmentsdir>] [-arg <a>]... [-env <e>]... [options]
   ios runxctest [-xctestrun-file-path <xctestrunFilePath>] [-log-output <file>] [options]
   ios screenshot [options] [-output <outfile>] [--stream] [-port <port>]
   ios sign certificate appstoreconnect -asc-key-id <keyid> -asc-issuer-id <issuerid> -asc-private-key <p8file> [-p12-output <p12file>] [-p12password <password>] [--revoke-existing] [options]
@@ -199,7 +204,7 @@ Usage:
   ios tunnel start [options] [-pair-record-path <pairrecordpath>] [--userspace]
   ios tunnel stopagent
   ios ui install (wda | devicekit) -p12file <p12file> -profile <mobileprovision> [-p12password <password>] [-p <ipaOrZipOrApp>] [-output <signedPath>] [-bundleid <bundleid>] [options]
-  ios ui run (wda | devicekit) [-bundleid <bundleid>] [-test-runner-bundleid <id>] [-xctest-config <name>] [-host-port <port>] [-log-output <file>] [options]
+  ios ui run (wda | devicekit) [-bundleid <bundleid>] [-test-runner-bundleid <id>] [-xctest-config <name>] [-host-port <port>] [-log-output <file>] [-attachments-dir <attachmentsdir>] [options]
   ios ui download [(wda | devicekit | all)] [-output <dir>] [options]
   ios ui status [-driver <driver>] [-wda-url <url>] [-devicekit-url <url>] [options]
   ios ui api [-driver <driver>] [-method <method>] [-http-path <path>] [-body <json>] [-body-file <file>] [-rpc-method <method>] [-params <json>] [-params-file <file>] [-wda-url <url>] [-devicekit-url <url>] [options]
@@ -234,6 +239,8 @@ Options:
   --pretty                  Pretty-print JSON command output
   -h --help                 Show this screen.
   -u <udid>                 UDID of the device. Can also be set via GO_IOS_UDID environment variable.
+  --video-id <uuid>         testmanagerd screen recording attachment UUID.
+  --output-dir <directory>  Local directory for the pulled screen recording.
   --tunnel-info-port <port> When go-ios is used to manage tunnels for iOS 17+,
                             it exposes them on an HTTP-API (default port: 28100)
   --tunnel-info-host <host> Host the tunnel-info HTTP-API binds to and is queried on.
@@ -527,9 +534,12 @@ The commands work as following:
                                                                     Ex.: runtest -test-to-run (TestTarget.)TestClass/testMethod (the value for 'TestTarget' is optional)
                                                                     The method name can also be omitted and in this case all tests of the specified class are run
 
-    ios runwda [-bundleid <bundleid>] [-testrunnerbundleid <testbundleid>] [-xctestconfig <xctestconfig>] [-log-output <file>] [-arg <a>]... [-env <e>]... [options]
+    ios runwda [-bundleid <bundleid>] [-testrunnerbundleid <testbundleid>] [-xctestconfig <xctestconfig>] [-log-output <file>] [-attachments-dir <attachmentsdir>] [-arg <a>]... [-env <e>]... [options]
                                                                     Runs WebDriverAgents
                                                                     Specify runtime args and env vars like -env ENV_1=something -env ENV_2=else  and -arg ARG1 -arg ARG2
+                                                                    -attachments-dir sets where XCTest activity attachments (e.g. screen recordings started via
+                                                                    WDA's /wda/screenrecord/start) are written as they are observed over DTX. Defaults to the
+                                                                    OS temp directory if not specified.
 
     ios runxctest [-xctestrun-file-path <xctestrunFilePath>] [-log-output <file>] [options]
                                                                     Run a XCTest.
@@ -555,11 +565,12 @@ The commands work as following:
                                                                     signs it with local signing files, and installs it on the selected device.
                                                                     Run "ios ui download" to pre-download artifacts, or pass -p to use your own local build.
 
-    ios ui run (wda | devicekit) [-bundleid <bundleid>] [-host-port <port>] [-log-output <file>]
+    ios ui run (wda | devicekit) [-bundleid <bundleid>] [-host-port <port>] [-log-output <file>] [-attachments-dir <attachmentsdir>]
                                                                     Runs an installed UI automation runner (WebDriverAgent or DeviceKit) and forwards
                                                                     its port to the host, so "ios ui ..." can reach it at http://127.0.0.1:<host-port>
                                                                     (defaults: WDA 8100, DeviceKit 12004). Blocks until interrupted. The run
-                                                                    counterpart to "ios ui install".
+                                                                    counterpart to "ios ui install". -attachments-dir sets where XCTest activity
+                                                                    attachments (e.g. WDA screen recordings) are written; defaults to the OS temp dir.
 
     ios ui download [(wda | devicekit | all)] [-output <dir>]        Downloads default WDA and/or DeviceKit artifacts from deviceboxhq.com,
                                                                     extracts zip artifacts, and prints JSON describing the files.
@@ -684,8 +695,10 @@ The commands work as following:
 		return
 	}
 
-	proxyUrl, _ := arguments.String("--proxyurl")
-	exitIfError("could not parse proxy url", ios.UseHttpProxy(proxyUrl))
+	if !screencordUsesDirectUsbmux(arguments) {
+		proxyUrl, _ := arguments.String("--proxyurl")
+		exitIfError("could not parse proxy url", ios.UseHttpProxy(proxyUrl))
+	}
 
 	if dispatchCommand(commandContext{Args: arguments}, globalCommands) {
 		return

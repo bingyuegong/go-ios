@@ -56,6 +56,17 @@ func runUIRunCommand(ctx commandContext) {
 		hostPort = uint16(hp)
 	}
 
+	// Where XCTest activity attachments (e.g. screen recordings started via WDA's
+	// /wda/screenrecord/start) are written to disk as they are observed over DTX. Read from
+	// the "<attachmentsdir>" placeholder key (not "--attachments-dir"), matching the same
+	// docopt lookup convention already used for -host-port/-log-output above and confirmed
+	// empirically against `ios runwda`'s identical flag in cmd_device_testing.go.
+	attachmentsDir, attachmentsDirErr := ctx.Args.String("<attachmentsdir>")
+	if attachmentsDirErr != nil || attachmentsDir == "" {
+		attachmentsDir = os.TempDir()
+	}
+	slog.Info("screen recording / activity attachments directory", "path", attachmentsDir)
+
 	// Run the runner. testmanagerd derives the test-runner bundle id and xctest
 	// config from the bundle id when the others are left empty, so callers only
 	// need the runner's bundle id.
@@ -67,7 +78,7 @@ func runUIRunCommand(ctx commandContext) {
 			TestRunnerBundleId: testRunnerBundleID,
 			XctestConfigName:   xctestConfig,
 			Device:             ctx.Device,
-			Listener:           testmanagerd.NewTestListener(uiRunLogWriter(ctx), uiRunLogWriter(ctx), os.TempDir()),
+			Listener:           testmanagerd.NewTestListener(uiRunLogWriter(ctx), uiRunLogWriter(ctx), attachmentsDir),
 		})
 		if err != nil {
 			runErr <- err

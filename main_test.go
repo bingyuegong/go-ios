@@ -65,9 +65,9 @@ func TestHelp_SubcommandExplicitImplicitAndGlobalFlagOrdering(t *testing.T) {
 	if implicitShortCode != 0 || implicitShortErr != "" {
 		t.Fatalf("apps -h failed: code=%d stderr=%q", implicitShortCode, implicitShortErr)
 	}
-	withGlobal, withGlobalErr, withGlobalCode := runCLI(t, "--udid=abc", "help", "apps")
+	withGlobal, withGlobalErr, withGlobalCode := runCLI(t, "-u", "abc", "help", "apps")
 	if withGlobalCode != 0 || withGlobalErr != "" {
-		t.Fatalf("--udid=abc help apps failed: code=%d stderr=%q", withGlobalCode, withGlobalErr)
+		t.Fatalf("-u abc help apps failed: code=%d stderr=%q", withGlobalCode, withGlobalErr)
 	}
 	normalizedExplicit := eolFormat(explicit)
 	if normalizedExplicit != eolFormat(implicit) {

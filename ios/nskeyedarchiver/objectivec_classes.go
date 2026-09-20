@@ -14,6 +14,20 @@ const (
 	attachmentLifetimeKeepAlways      = 0
 	attachmentLifetimeDeleteOnSuccess = 1
 	attachmentLifetimeDeleteAlways    = 2
+
+	// screenCaptureFormatScreenRecording / screenCaptureFormatScreenshots mirror Apple's
+	// XCTest.ScreenCaptureFormat enum (Xcode 15+): 0 = screenRecording (the Xcode 15+
+	// default, video), 1 = screenshots. Previously this field was hard-coded to 2, which is
+	// out of range for this 2-case enum -- confirmed on a real device (Xcode 27 / iOS 27)
+	// that an out-of-range value causes the test session to be negotiated as
+	// "preferredScreenCaptureFormat:screenshots" (WDA's own XCTestConfiguration dump) and
+	// XCTest to log "Failed to start diagnostic screen recording - configuration prefers
+	// screenshots.", which silently prevents the XCTest-native screen recording attachment
+	// (kXCTAttachmentScreenRecording) from ever containing real video payload bytes, even
+	// though the /wda/screenrecord/start and /wda/screenrecord/stop HTTP calls both succeed
+	// without error.
+	screenCaptureFormatScreenRecording = 0
+	screenCaptureFormatScreenshots     = 1
 )
 
 var (
@@ -151,7 +165,7 @@ func NewXCTestConfiguration(
 	contents["testTimeoutsEnabled"] = false
 	contents["treatMissingBaselinesAsFailures"] = false
 	contents["userAttachmentLifetime"] = attachmentLifetimeKeepAlways
-	contents["preferredScreenCaptureFormat"] = 2
+	contents["preferredScreenCaptureFormat"] = screenCaptureFormatScreenRecording
 	contents["IDECapabilities"] = XCTCapabilities{CapabilitiesDictionary: map[string]interface{}{
 		"expected failure test capability":         true,
 		"test case run configurations":             true,

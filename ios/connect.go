@@ -42,7 +42,9 @@ func newConnectMessage(deviceID int, portNumber uint16) connectMessage {
 // It returns an error containing the UsbMux error code should the connect fail.
 func (muxConn *UsbMuxConnection) Connect(deviceID int, port uint16) error {
 	msg := newConnectMessage(deviceID, Ntohs(port))
-	muxConn.Send(msg)
+	if err := muxConn.Send(msg); err != nil {
+		return fmt.Errorf("failed sending usbmux connect request: %w", err)
+	}
 	resp, err := muxConn.ReadMessage()
 	if err != nil {
 		return err

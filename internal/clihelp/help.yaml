@@ -66,6 +66,9 @@ commands:
   - path: debug
     usage: ios debug [options] [--stop-at-entry] <app_path>
     summary: Start LLDB debug session.
+  - path: delete_all_testmanagerd_screenrecord
+    usage: ios delete_all_testmanagerd_screenrecord [options]
+    summary: Delete all testmanagerd screen recording attachments with native CoreDevice fileservice.
   - path: devicename
     usage: ios devicename [options]
     summary: Print device name.
@@ -189,6 +192,9 @@ commands:
   - path: profile remove
     usage: ios profile remove <profileName> [options]
     summary: Remove installed profile.
+  - path: pull_testmanagerd_screenrecord
+    usage: ios pull_testmanagerd_screenrecord --video-id <uuid> --output-dir <directory> [options]
+    summary: Pull one testmanagerd screen recording with native CoreDevice fileservice.
   - path: ps
     usage: ios ps [--apps] [options]
     summary: List running processes.
@@ -216,6 +222,15 @@ commands:
   - path: runxctest
     usage: ios runxctest [-xctestrun-file-path <xctestrunFilePath>] [-log-output <file>] [options]
     summary: Run XCTest from .xctestrun file.
+  - path: screenrecord_start
+    usage: ios screenrecord_start [-wda-url <url>] [options]
+    summary: Start WDA screen recording through a direct usbmux connection.
+  - path: screenrecord_stop
+    usage: ios screenrecord_stop [-wda-url <url>] [options]
+    summary: Stop WDA screen recording through a direct usbmux connection.
+  - path: screenrecord_status
+    usage: ios screenrecord_status [-wda-url <url>] [options]
+    summary: Query WDA screen recording status through a direct usbmux connection.
   - path: screenshot
     usage: ios screenshot [options] [-output <outfile>] [--stream] [-port <port>]
     summary: Capture screenshot or stream MJPEG.

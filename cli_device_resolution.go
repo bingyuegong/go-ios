@@ -111,6 +111,7 @@ func needsAutomaticTunnelInfo(args docopt.Opts) bool {
 
 	for _, commandName := range []string{
 		"debug",
+		"delete_all_testmanagerd_screenrecord",
 		"devicestate",
 		"instruments",
 		"kill",
@@ -118,6 +119,7 @@ func needsAutomaticTunnelInfo(args docopt.Opts) bool {
 		"memlimitoff",
 		"ostrace",
 		"ps",
+		"pull_testmanagerd_screenrecord",
 		"resetlocation",
 		"runwda",
 		"runxctest",

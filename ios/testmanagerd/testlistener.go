@@ -116,6 +116,17 @@ func (t *TestListener) testCaseFinished(testClass string, testMethod string, xcA
 		// That's unfortunately the default behavior defined by Apple.
 		// This if block is a safe guard to auto correct the test case information
 		ts = t.runningTestSuite
+		if ts == nil {
+			// Extra defensive guard on top of Apple's already-hacky "none" test class
+			// convention above: if this fires before any real test suite has been
+			// registered yet, avoid a nil-pointer panic on the len() check below. Any
+			// panic here would in practice already be caught by proxydispatcher's
+			// Dispatch() recover() and would not affect the WDA session's own lifecycle
+			// (testCaseFinished is not part of the executionFinished()/Done() signal
+			// path), but returning cleanly is still preferable to panic-then-recover.
+			golog.Debug("Received testCaseFinished with no running test suite yet", "module", logModule, "testClass", testClass, "testMethod", testMethod)
+			return
+		}
 		if len(ts.TestCases) == 0 {
 			golog.Debug("Received testCaseFinished without initialization", "module", logModule, "testClass", testClass, "testMethod", testMethod)
 			return
