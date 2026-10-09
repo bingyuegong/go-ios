@@ -20,15 +20,6 @@ var preProxyCommands = []command{
 }
 
 var globalCommands = []command{
-	{
-		name: "ui",
-		match: func(args docopt.Opts) bool {
-			// `ui install` and `ui run` need a device, so they are device
-			// commands; everything else under `ui` is a URL-based client command.
-			return boolArg(args, "ui") && !boolArg(args, "install") && !boolArg(args, "run")
-		},
-		run: runUICommand,
-	},
 	commandByBool("listen", runListenCommand),
 	{
 		name:  "list",

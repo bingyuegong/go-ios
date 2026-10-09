@@ -209,9 +209,9 @@ Usage:
   ios ui status [-driver <driver>] [-wda-url <url>] [-devicekit-url <url>] [options]
   ios ui api [-driver <driver>] [-method <method>] [-http-path <path>] [-body <json>] [-body-file <file>] [-rpc-method <method>] [-params <json>] [-params-file <file>] [-wda-url <url>] [-devicekit-url <url>] [options]
   ios ui raw [-driver <driver>] [-method <method>] [-http-path <path>] [-body <json>] [-body-file <file>] [-rpc-method <method>] [-params <json>] [-params-file <file>] [-wda-url <url>] [-devicekit-url <url>] [options]
-  ios ui tap -x <x> -y <y> [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
-  ios ui swipe -from-x <x> -from-y <y> -to-x <x> -to-y <y> [-duration <seconds>] [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
-  ios ui longpress -x <x> -y <y> [-duration <seconds>] [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
+  ios ui tap <x> <y> [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
+  ios ui swipe <x1> <y1> <x2> <y2> [-duration <seconds>] [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
+  ios ui longpress <x> <y> [-duration <seconds>] [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
   ios ui type -text <text> [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
   ios ui button <button> [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
   ios ui screenshot [-output <outfile>] [-driver <driver>] [-session-id <sessionid>] [-wda-url <url>] [-devicekit-url <url>] [options]
@@ -576,7 +576,7 @@ The commands work as following:
                                                                     extracts zip artifacts, and prints JSON describing the files.
                                                                     Use the printed artifactPath or appPath with "ios ui install -p" or "ios sign app -p".
 
-    ios ui status [-driver <driver>]                                 Checks the configured UI automation backend. Defaults to DeviceKit.
+    ios ui status [-driver <driver>]                                 Checks the configured UI automation backend. Defaults to WDA (connects via usbmux directly to device port 8100; pass -wda-url to use a forwarded port instead).
 
     ios ui api [-driver <driver>]                                     Calls a backend-specific API directly.
                                                                     For WDA, pass -http-path <path>, optionally -method <method> and -body <json>.
@@ -584,9 +584,12 @@ The commands work as following:
                                                                     Use -driver auto to probe DeviceKit first, then WDA.
                                                                     "raw" is accepted as an alias for "api".
 
-    ios ui tap -x <x> -y <y>                                         Taps at screen coordinates.
-    ios ui swipe -from-x <x> -from-y <y> -to-x <x> -to-y <y>        Swipes between screen coordinates.
-    ios ui longpress -x <x> -y <y> [-duration <seconds>]             Long-presses at screen coordinates.
+    ios ui tap <x> <y>                                               Taps at screen coordinates. Use integers for absolute pixels (e.g. 500 900)
+                                                                    or decimals in 0.0–1.0 for relative coordinates (e.g. 0.5 0.5 = center).
+    ios ui swipe <x1> <y1> <x2> <y2>                                 Swipes from (x1,y1) to (x2,y2). Use integers for absolute pixels
+                                                                    or decimals in 0.0–1.0 for relative coordinates (e.g. 0.1 0.9 0.1 0.1).
+    ios ui longpress <x> <y> [-duration <seconds>]                   Long-presses at screen coordinates. Use integers for absolute pixels
+                                                                    or decimals in 0.0–1.0 for relative coordinates (e.g. 0.5 0.5).
     ios ui type -text <text>                                         Types text.
     ios ui button <button>                                           Presses a button. DeviceKit supports more buttons; WDA supports home.
     ios ui screenshot [-output <outfile>]                            Saves a screenshot, or writes PNG bytes to stdout.

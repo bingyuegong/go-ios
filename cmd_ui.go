@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,11 +16,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bingyuegong/go-ios/ios"
 	"github.com/docopt/docopt-go"
 )
 
 const (
-	defaultUIDriver      = "devicekit"
+	defaultUIDriver      = "wda"
 	defaultWDAURL        = "http://127.0.0.1:8100"
 	defaultDeviceKitURL  = "http://127.0.0.1:12004"
 	uiDriverWDA          = "wda"
@@ -28,11 +31,13 @@ const (
 )
 
 type uiClient struct {
-	driver       string
-	wdaURL       string
-	deviceKitURL string
-	httpClient   *http.Client
-	sessionID    string
+	driver        string
+	wdaURL        string
+	deviceKitURL  string
+	httpClient    *http.Client
+	wdaHTTPClient *http.Client
+	device        ios.DeviceEntry
+	sessionID     string
 }
 
 type uiHTTPResponse struct {
@@ -47,7 +52,7 @@ func runUICommand(ctx commandContext) {
 		return
 	}
 
-	client := newUIClient(ctx.Args)
+	client := newUIClient(ctx)
 
 	switch {
 	case boolArg(ctx.Args, "status"):
@@ -55,17 +60,19 @@ func runUICommand(ctx commandContext) {
 	case boolArg(ctx.Args, "api") || boolArg(ctx.Args, "raw"):
 		client.api(ctx)
 	case boolArg(ctx.Args, "tap"):
-		client.tap(requiredIntArg(ctx.Args, "--x"), requiredIntArg(ctx.Args, "--y"))
+		x := requiredFloatArg(ctx.Args, "<x>")
+		y := requiredFloatArg(ctx.Args, "<y>")
+		client.tap(x, y)
 	case boolArg(ctx.Args, "swipe"):
-		client.swipe(
-			requiredIntArg(ctx.Args, "--from-x"),
-			requiredIntArg(ctx.Args, "--from-y"),
-			requiredIntArg(ctx.Args, "--to-x"),
-			requiredIntArg(ctx.Args, "--to-y"),
-			optionalFloatArg(ctx.Args, "--duration", 0),
-		)
+		x1 := requiredFloatArg(ctx.Args, "<x1>")
+		y1 := requiredFloatArg(ctx.Args, "<y1>")
+		x2 := requiredFloatArg(ctx.Args, "<x2>")
+		y2 := requiredFloatArg(ctx.Args, "<y2>")
+		client.swipe(x1, y1, x2, y2, optionalFloatArg(ctx.Args, "--duration", 0))
 	case boolArg(ctx.Args, "longpress"):
-		client.longPress(requiredIntArg(ctx.Args, "--x"), requiredIntArg(ctx.Args, "--y"), optionalFloatArg(ctx.Args, "--duration", 1))
+		x := requiredFloatArg(ctx.Args, "<x>")
+		y := requiredFloatArg(ctx.Args, "<y>")
+		client.longPress(x, y, optionalFloatArg(ctx.Args, "--duration", 1))
 	case boolArg(ctx.Args, "type"):
 		client.typeText(requiredStringArg(ctx.Args, "--text"))
 	case boolArg(ctx.Args, "button"):
@@ -90,7 +97,8 @@ func runUICommand(ctx commandContext) {
 	}
 }
 
-func newUIClient(args docopt.Opts) uiClient {
+func newUIClient(ctx commandContext) uiClient {
+	args := ctx.Args
 	driver, _ := args.String("--driver")
 	if driver == "" {
 		driver = os.Getenv("GO_IOS_UI_DRIVER")
@@ -102,9 +110,6 @@ func newUIClient(args docopt.Opts) uiClient {
 	if wdaURL == "" {
 		wdaURL = os.Getenv("GO_IOS_WDA_URL")
 	}
-	if wdaURL == "" {
-		wdaURL = defaultWDAURL
-	}
 	deviceKitURL, _ := args.String("--devicekit-url")
 	if deviceKitURL == "" {
 		deviceKitURL = os.Getenv("GO_IOS_DEVICEKIT_URL")
@@ -113,12 +118,35 @@ func newUIClient(args docopt.Opts) uiClient {
 		deviceKitURL = defaultDeviceKitURL
 	}
 	sessionID, _ := args.String("--session-id")
+
+	// WDA HTTP 客户端：未指定 --wda-url 时通过 usbmux 直连设备端口 8100
+	var wdaHTTPClient *http.Client
+	var resolvedWDAURL string
+	if wdaURL != "" {
+		// 用户显式指定了 URL，走普通 HTTP
+		resolvedWDAURL = strings.TrimRight(wdaURL, "/")
+		wdaHTTPClient = &http.Client{Timeout: 60 * time.Second}
+	} else {
+		// 未指定 URL，通过 usbmux 直连设备端口 8100
+		resolvedWDAURL = defaultWDAURL
+		wdaTransport := &http.Transport{
+			Proxy:             nil,
+			DisableKeepAlives: false,
+			DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
+				return ios.DialDevicePortContext(dialCtx, ctx.Device, 8100)
+			},
+		}
+		wdaHTTPClient = &http.Client{Transport: wdaTransport, Timeout: 60 * time.Second}
+	}
+
 	client := uiClient{
-		driver:       driver,
-		wdaURL:       strings.TrimRight(wdaURL, "/"),
-		deviceKitURL: strings.TrimRight(deviceKitURL, "/"),
-		httpClient:   &http.Client{Timeout: 60 * time.Second},
-		sessionID:    sessionID,
+		driver:        driver,
+		wdaURL:        resolvedWDAURL,
+		deviceKitURL:  strings.TrimRight(deviceKitURL, "/"),
+		httpClient:    &http.Client{Timeout: 60 * time.Second},
+		wdaHTTPClient: wdaHTTPClient,
+		device:        ctx.Device,
+		sessionID:     sessionID,
 	}
 	client.resolveDriver()
 	return client
@@ -169,32 +197,137 @@ func (c *uiClient) api(ctx commandContext) {
 	}
 }
 
-func (c *uiClient) tap(x, y int) {
+func (c *uiClient) fetchScreenSize() (int, int) {
+	var resp uiHTTPResponse
 	switch c.driver {
 	case uiDriverDeviceKit:
-		printUIResponse(c.deviceKitRPC("device.io.tap", map[string]interface{}{"x": x, "y": y}))
+		resp = c.deviceKitRPC("device.info", map[string]interface{}{})
 	case uiDriverWDA:
-		printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "wda", "tap", strconv.Itoa(x), strconv.Itoa(y)), nil))
+		resp = c.wdaHTTP(http.MethodGet, wdaPath("session", c.wdaSession(), "window", "size"), nil)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(resp.Body, &decoded); err != nil {
+		logFatal("failed parsing screen size response: " + err.Error())
+	}
+	// 尝试从嵌套结构中提取 width/height
+	for _, container := range []interface{}{decoded, decoded["result"], decoded["value"]} {
+		if m, ok := container.(map[string]interface{}); ok {
+			for _, wk := range []string{"screenWidth", "width", "Width", "w"} {
+				for _, hk := range []string{"screenHeight", "height", "Height", "h"} {
+					if wv, wok := toScreenSizeFloat(m[wk]); wok {
+						if hv, hok := toScreenSizeFloat(m[hk]); hok {
+							return int(wv), int(hv)
+						}
+					}
+				}
+			}
+		}
+	}
+	logFatal("could not parse screen size from response: " + string(resp.Body))
+	return 0, 0
+}
+
+func toScreenSizeFloat(v interface{}) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, t > 0
+	case float32:
+		return float64(t), t > 0
+	case int:
+		return float64(t), t > 0
+	case int64:
+		return float64(t), t > 0
+	}
+	return 0, false
+}
+
+// resolveCoords 将输入坐标转换为绝对像素坐标。
+// 当 x 和 y 均小于 1.0 时，视为相对坐标（0.0~1.0），自动乘以屏幕分辨率换算。
+func (c *uiClient) resolveCoords(x, y float64) (int, int) {
+	if x < 1.0 && y < 1.0 {
+		w, h := c.fetchScreenSize()
+		return int(x * float64(w)), int(y * float64(h))
+	}
+	return int(x), int(y)
+}
+
+func (c *uiClient) tap(x, y float64) {
+	ax, ay := c.resolveCoords(x, y)
+	switch c.driver {
+	case uiDriverDeviceKit:
+		printUIResponse(c.deviceKitRPC("device.io.tap", map[string]interface{}{"x": ax, "y": ay}))
+	case uiDriverWDA:
+		// 使用 W3C Actions 协议发送 tap
+		body := mustJSON(map[string]interface{}{
+			"actions": []interface{}{
+				map[string]interface{}{
+					"type":       "pointer",
+					"id":         "finger1",
+					"parameters": map[string]interface{}{"pointerType": "touch"},
+					"actions": []interface{}{
+						map[string]interface{}{"type": "pointerMove", "duration": 0, "x": ax, "y": ay},
+						map[string]interface{}{"type": "pointerDown", "button": 0},
+						map[string]interface{}{"type": "pointerUp", "button": 0},
+					},
+				},
+			},
+		})
+		printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "actions"), body))
 	}
 }
 
-func (c *uiClient) swipe(fromX, fromY, toX, toY int, duration float64) {
+func (c *uiClient) swipe(fromX, fromY, toX, toY float64, duration float64) {
+	afx, afy := c.resolveCoords(fromX, fromY)
+	atx, aty := c.resolveCoords(toX, toY)
 	switch c.driver {
 	case uiDriverDeviceKit:
-		printUIResponse(c.deviceKitRPC("device.io.swipe", map[string]interface{}{"fromX": fromX, "fromY": fromY, "toX": toX, "toY": toY, "duration": duration}))
+		printUIResponse(c.deviceKitRPC("device.io.swipe", map[string]interface{}{"fromX": afx, "fromY": afy, "toX": atx, "toY": aty, "duration": duration}))
 	case uiDriverWDA:
-		body := map[string]interface{}{"fromX": fromX, "fromY": fromY, "toX": toX, "toY": toY, "duration": duration}
-		printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "wda", "dragfromtoforduration"), mustJSON(body)))
+		// 使用 W3C Actions 协议发送 swipe
+		durationMs := int(duration * 1000)
+		body := mustJSON(map[string]interface{}{
+			"actions": []interface{}{
+				map[string]interface{}{
+					"type":       "pointer",
+					"id":         "finger1",
+					"parameters": map[string]interface{}{"pointerType": "touch"},
+					"actions": []interface{}{
+						map[string]interface{}{"type": "pointerMove", "duration": 0, "x": afx, "y": afy},
+						map[string]interface{}{"type": "pointerDown", "button": 0},
+						map[string]interface{}{"type": "pointerMove", "duration": durationMs, "x": atx, "y": aty},
+						map[string]interface{}{"type": "pointerUp", "button": 0},
+					},
+				},
+			},
+		})
+		printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "actions"), body))
 	}
 }
 
-func (c *uiClient) longPress(x, y int, duration float64) {
+func (c *uiClient) longPress(x, y float64, duration float64) {
+	ax, ay := c.resolveCoords(x, y)
 	switch c.driver {
 	case uiDriverDeviceKit:
-		printUIResponse(c.deviceKitRPC("device.io.longpress", map[string]interface{}{"x": x, "y": y, "duration": duration}))
+		printUIResponse(c.deviceKitRPC("device.io.longpress", map[string]interface{}{"x": ax, "y": ay, "duration": duration}))
 	case uiDriverWDA:
-		body := map[string]interface{}{"x": x, "y": y, "duration": duration}
-		printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "wda", "touchAndHold"), mustJSON(body)))
+		// 使用 W3C Actions 协议发送 longPress
+		durationMs := int(duration * 1000)
+		body := mustJSON(map[string]interface{}{
+			"actions": []interface{}{
+				map[string]interface{}{
+					"type":       "pointer",
+					"id":         "finger1",
+					"parameters": map[string]interface{}{"pointerType": "touch"},
+					"actions": []interface{}{
+						map[string]interface{}{"type": "pointerMove", "duration": 0, "x": ax, "y": ay},
+						map[string]interface{}{"type": "pointerDown", "button": 0},
+						map[string]interface{}{"type": "pause", "duration": durationMs},
+						map[string]interface{}{"type": "pointerUp", "button": 0},
+					},
+				},
+			},
+		})
+		printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "actions"), body))
 	}
 }
 
@@ -364,7 +497,7 @@ func (c uiClient) deviceKitHealthy() bool {
 }
 
 func (c uiClient) wdaHealthy() bool {
-	resp, err := c.httpClient.Get(c.wdaURL + "/status")
+	resp, err := c.wdaHTTPClient.Get(c.wdaURL + "/status")
 	if err != nil {
 		return false
 	}
@@ -387,10 +520,10 @@ func (c uiClient) deviceKitHTTP(method string, endpoint string, body []byte) uiH
 }
 
 func (c uiClient) wdaHTTP(method string, endpoint string, body []byte) uiHTTPResponse {
-	return c.doHTTP(method, c.wdaURL, endpoint, body)
+	return c.doHTTPWithClient(c.wdaHTTPClient, method, c.wdaURL, endpoint, body)
 }
 
-func (c uiClient) doHTTP(method string, baseURL string, endpoint string, body []byte) uiHTTPResponse {
+func (c uiClient) doHTTPWithClient(client *http.Client, method string, baseURL string, endpoint string, body []byte) uiHTTPResponse {
 	if !strings.HasPrefix(endpoint, "/") {
 		endpoint = "/" + endpoint
 	}
@@ -400,7 +533,7 @@ func (c uiClient) doHTTP(method string, baseURL string, endpoint string, body []
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := client.Do(req)
 	exitIfError("UI request failed", err)
 	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(resp.Body)
@@ -410,6 +543,10 @@ func (c uiClient) doHTTP(method string, baseURL string, endpoint string, body []
 		os.Exit(1)
 	}
 	return uiHTTPResponse{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
+}
+
+func (c uiClient) doHTTP(method string, baseURL string, endpoint string, body []byte) uiHTTPResponse {
+	return c.doHTTPWithClient(c.httpClient, method, baseURL, endpoint, body)
 }
 
 func (c uiClient) pipeHTTP(rawURL string) {
@@ -490,6 +627,18 @@ func textBody(text string) map[string]interface{} {
 
 func wdaPath(parts ...string) string {
 	return "/" + path.Join(parts...)
+}
+
+func requiredFloatArg(args docopt.Opts, name string) float64 {
+	value, _ := args.String(name)
+	if value == "" {
+		logFatal("missing required argument: " + strings.Trim(name, "<>"))
+	}
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		logFatal("invalid value for " + name + ": " + value)
+	}
+	return f
 }
 
 func requiredStringArg(args docopt.Opts, name string) string {
