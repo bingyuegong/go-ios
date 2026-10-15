@@ -118,6 +118,7 @@ func needsAutomaticTunnelInfo(args docopt.Opts) bool {
 		"launch",
 		"memlimitoff",
 		"ostrace",
+		"pasteboard",
 		"ps",
 		"pull_testmanagerd_screenrecord",
 		"resetlocation",

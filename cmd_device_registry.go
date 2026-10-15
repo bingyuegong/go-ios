@@ -49,6 +49,7 @@ var deviceCommands = []command{
 	commandByBool("date", runDateCommand),
 	commandByBool("diagnostics", runDiagnosticsCommand),
 	commandByBool("pair", runPairCommand),
+	commandByBool("pasteboard", runPasteboardCommand),
 	commandByBool("readpair", runReadPairCommand),
 	commandByBool("batteryregistry", runBatteryRegistryCommand),
 	commandByBool("reboot", runRebootCommand),

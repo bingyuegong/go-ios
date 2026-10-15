@@ -2,6 +2,11 @@ __debug_bin*
 selfIdentity.plist
 cmd/cdc-ncm/cdc-ncm
 node_modules
+# Local environment files (already tracked files must be untracked separately).
+.env
+.env.*
+*.env
+*.env.*
 *.mobileprovision
 *.p12
 *.key

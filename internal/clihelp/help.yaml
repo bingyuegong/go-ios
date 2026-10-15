@@ -165,6 +165,9 @@ commands:
   - path: pair
     usage: ios pair [-p12file <orgid>] [-password <p12password>] [options]
     summary: Pair host with device.
+  - path: pasteboard
+    usage: ios pasteboard (set [<text>] | get) [options]
+    summary: Read or write device text via CoreDevice RemoteXPC (iOS 17+; requires tunnel and pasteboard RSD service).
   - path: pcap
     usage: ios pcap [options] [-pid <processID>] [-process <processName>]
     summary: Capture network packets.

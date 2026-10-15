@@ -68,6 +68,7 @@ Commands:
   mobilegestalt                         Query mobilegestalt keys.
   ostrace                               Stream os_trace_relay logs.
   pair                                  Pair host with device.
+  pasteboard                            Read or write device text via CoreDevice RemoteXPC (iOS 17+; requires tunnel and pasteboard RSD service).
   pcap                                  Capture network packets.
   prepare                               Prepare device for automation.
   prepare cloudconfig                   Print cloud configuration.
@@ -86,9 +87,9 @@ Commands:
   runtest                               Run XCUITest bundles.
   runwda                                Run WebDriverAgent.
   runxctest                             Run XCTest from .xctestrun file.
-  screenrecord_start                      Start WDA screen recording through a direct usbmux connection.
-  screenrecord_status                     Query WDA screen recording status through a direct usbmux connection.
-  screenrecord_stop                       Stop WDA screen recording through a direct usbmux connection.
+  screenrecord_start                    Start WDA screen recording through a direct usbmux connection.
+  screenrecord_status                   Query WDA screen recording status through a direct usbmux connection.
+  screenrecord_stop                     Stop WDA screen recording through a direct usbmux connection.
   screenshot                            Capture screenshot or stream MJPEG.
   setlocation                           Set simulated location coordinates.
   setlocationgpx                        Set simulated location from GPX.

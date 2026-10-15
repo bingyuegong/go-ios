@@ -82,6 +82,20 @@ func TestHelp_SubcommandExplicitImplicitAndGlobalFlagOrdering(t *testing.T) {
 	assertGolden(t, "apps.golden", explicit)
 }
 
+func TestHelp_Pasteboard(t *testing.T) {
+	explicit, stderr, code := runCLI(t, "help", "pasteboard")
+	if code != 0 || stderr != "" {
+		t.Fatalf("help pasteboard failed: code=%d stderr=%q", code, stderr)
+	}
+	implicit, stderr, code := runCLI(t, "pasteboard", "--help")
+	if code != 0 || stderr != "" || eolFormat(implicit) != eolFormat(explicit) {
+		t.Fatalf("pasteboard --help differs: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(explicit, "ios pasteboard (set [<text>] | get) [options]") {
+		t.Fatalf("missing pasteboard usage: %q", explicit)
+	}
+}
+
 func TestHelp_NestedSubcommandAndUnknown(t *testing.T) {
 	explicit, explicitErr, explicitCode := runCLI(t, "help", "tunnel", "start")
 	if explicitCode != 0 || explicitErr != "" {
