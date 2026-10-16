@@ -10,6 +10,25 @@ import (
 	"testing"
 )
 
+func TestConnectionSendUsesDistinctOddMessageIDs(t *testing.T) {
+	wire := &bytes.Buffer{}
+	connection, err := New(wire, &bytes.Buffer{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []uint64{1, 3, 5} {
+		if err := connection.Send(map[string]interface{}{"n": int64(i)}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecodeMessage(wire); err != nil {
+			t.Fatal(err)
+		}
+		if connection.msgId != want+2 {
+			t.Fatalf("after message %d, next ID = %d, want %d", i, connection.msgId, want+2)
+		}
+	}
+}
+
 func TestEmptyDictionary(t *testing.T) {
 	b, _ := os.ReadFile(path.Join("xpc_empty_dict.bin"))
 

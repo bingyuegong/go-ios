@@ -96,6 +96,12 @@ func resolveDevice(arguments docopt.Opts, tunnelInfo tunnelInfoConfig) ios.Devic
 	return device
 }
 
+// Keyboard commands either manage a daemon or send keys to one that is
+// already running; neither path needs to resolve or open a device here.
+func isDeviceIndependentKeyboardCommand(args docopt.Opts) bool {
+	return boolArg(args, "keyboard")
+}
+
 func needsAutomaticTunnelInfo(args docopt.Opts) bool {
 	if boolArg(args, "rsd") || boolArg(args, "file") || boolArg(args, "webinspector") {
 		return true

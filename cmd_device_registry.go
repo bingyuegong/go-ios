@@ -50,6 +50,7 @@ var deviceCommands = []command{
 	commandByBool("diagnostics", runDiagnosticsCommand),
 	commandByBool("pair", runPairCommand),
 	commandByBool("pasteboard", runPasteboardCommand),
+	commandByBool("keyboard", runKeyCombinationCommand),
 	commandByBool("readpair", runReadPairCommand),
 	commandByBool("batteryregistry", runBatteryRegistryCommand),
 	commandByBool("reboot", runRebootCommand),

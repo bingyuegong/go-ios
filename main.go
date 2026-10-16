@@ -150,6 +150,9 @@ Usage:
   ios info [display | lockdown] [options]
   ios install [-p] <ipaOrAppFolder> [options]
   ios instruments notifications [options]
+  ios keyboard daemon (start | stop) [options]
+  ios keyboard daemon [options]
+  ios keyboard <key>... [options]
   ios ip [options]
   ios kill (<bundleID> | -pid <processID> | -process <processName>) [options]
   ios lang [-setlocale <locale>] [-setlang <newlang>] [options]
@@ -444,6 +447,11 @@ The commands work as following:
     ios install [-p] <ipaOrAppFolder> [options]  Specify a .app folder or an installable ipa file that will be installed.
     ios instruments notifications [options]         Listen to application state notifications
 
+    ios keyboard daemon (start | stop) [options]  Manage a device-specific background keyboard daemon with -u <udid>.
+    ios keyboard daemon [options]                 Run a foreground keyboard daemon for all eligible devices.
+    ios keyboard <key>... [options]  Send keys through the running daemon for -u <udid> only (e.g. keyboard a -u <udid>; keyboard command a -u <udid>).
+                                                    Requires an iOS 17+ tunnel and Universal HID service; input may also need an active display media stream.
+
     ios ip [options]                                Uses the live pcap iOS packet capture to wait until it finds one that contains the IP address of the device.
                                                     It relies on the MAC address of the WiFi adapter to know which is the right IP.
                                                     You have to disable the "automatic wifi address"-privacy feature of the device for this to work.
@@ -713,7 +721,12 @@ The commands work as following:
 	}
 
 	tunnelInfo := tunnelInfoConfigFromArgs(arguments)
-	device := resolveDevice(arguments, tunnelInfo)
+	// Keyboard input talks only to an existing per-device daemon; starting and
+	// stopping that daemon also bypasses single-device resolution.
+	device := ios.DeviceEntry{}
+	if !isDeviceIndependentKeyboardCommand(arguments) {
+		device = resolveDevice(arguments, tunnelInfo)
+	}
 
 	if dispatchCommand(commandContext{Args: arguments, Device: device}, deviceCommands) {
 		return

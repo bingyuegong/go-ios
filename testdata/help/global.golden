@@ -58,6 +58,7 @@ Commands:
   install                               Install app bundle or IPA.
   instruments notifications             Stream app state notifications.
   ip                                    Detect device IP from packet capture.
+  keyboard                              Send simultaneous keyboard keys via CoreDevice HID (a-z, 0-9, f1-f24, modifiers, named keys, or raw hid:0xNN keyboard usages). Fn/Globe combinations are unsupported: Apple Fn uses vendor page 0xff, usage 0x03, not a keyboard-page usage. Both fn and the misleading fn:0xNN alias are rejected instead of reporting a false success. Examples: keyboard a -u <udid>; keyboard command a -u <udid>. Keys are sent only through an already running per-device daemon; without it, input fails. daemon start/stop -u <udid> manages an independent background session for that device, avoiding duplicate starts and safely stopping only that session. daemon without an action remains available for foreground diagnostics, but keyboard input never falls back to it. Requires a tunnel and Universal HID service; some devices may require an active display media stream. Sending reports does not confirm the foreground effect or physical-keyboard detection.
   kill                                  Kill app by bundle ID, PID, or process.
   lang                                  Read or set device language and locale.
   launch                                Launch app by bundle ID.

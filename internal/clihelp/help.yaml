@@ -138,6 +138,12 @@ commands:
   - path: ip
     usage: ios ip [options]
     summary: Detect device IP from packet capture.
+  - path: keyboard
+    usage: |-
+      ios keyboard daemon (start | stop) [options]
+        ios keyboard daemon [options]
+        ios keyboard <key>... [options]
+    summary: 'Send simultaneous keyboard keys via CoreDevice HID (a-z, 0-9, f1-f24, modifiers, named keys, or raw hid:0xNN keyboard usages). Fn/Globe combinations are unsupported: Apple Fn uses vendor page 0xff, usage 0x03, not a keyboard-page usage. Both fn and the misleading fn:0xNN alias are rejected instead of reporting a false success. Examples: keyboard a -u <udid>; keyboard command a -u <udid>. Keys are sent only through an already running per-device daemon; without it, input fails. daemon start/stop -u <udid> manages an independent background session for that device, avoiding duplicate starts and safely stopping only that session. daemon without an action remains available for foreground diagnostics, but keyboard input never falls back to it. Requires a tunnel and Universal HID service; some devices may require an active display media stream. Sending reports does not confirm the foreground effect or physical-keyboard detection.'
   - path: kill
     usage: ios kill (<bundleID> | -pid <processID> | -process <processName>) [options]
     summary: Kill app by bundle ID, PID, or process.

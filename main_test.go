@@ -96,6 +96,46 @@ func TestHelp_Pasteboard(t *testing.T) {
 	}
 }
 
+func TestHelp_Keyboard(t *testing.T) {
+	explicit, stderr, code := runCLI(t, "help", "keyboard")
+	if code != 0 || stderr != "" {
+		t.Fatalf("help keyboard failed: code=%d stderr=%q", code, stderr)
+	}
+	implicit, stderr, code := runCLI(t, "keyboard", "--help")
+	if code != 0 || stderr != "" || eolFormat(implicit) != eolFormat(explicit) {
+		t.Fatalf("keyboard --help differs: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(explicit, "ios keyboard <key>... [options]") || !strings.Contains(explicit, "daemon") || strings.Contains(explicit, "press <key>") || strings.Contains(explicit, "ios keyboard (session") {
+		t.Fatalf("missing keyboard usage: %q", explicit)
+	}
+}
+
+func TestKeyboardKeysRequireManagedDaemon(t *testing.T) {
+	t.Setenv("GO_IOS_KEYBOARD_STATE", filepath.Join(t.TempDir(), "missing-daemon.json"))
+	t.Setenv("GO_IOS_UDID", "")
+	const udid = "00008110-000E2C8C3AF1401E"
+	for _, args := range [][]string{
+		{"keyboard", "a", "-u", udid},
+		{"keyboard", "7", "-u", udid},
+		{"keyboard", "command", "a", "-u", udid},
+	} {
+		stdout, stderr, code := runCLI(t, args...)
+		if code == 0 || !strings.Contains(stderr, "daemon start -u "+udid) || strings.Contains(stdout, "HID reports sent") {
+			t.Fatalf("keyboard %v without daemon: code=%d stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
+	}
+	for _, args := range [][]string{
+		{"keyboard", "a"},
+		{"keyboard", "press", "a", "-u", udid},
+		{"keyboard", "session", "-u", udid},
+	} {
+		stdout, stderr, code := runCLI(t, args...)
+		if code == 0 || strings.Contains(stdout, "HID reports sent") || strings.Contains(stderr, "Device not found") {
+			t.Fatalf("unsupported keyboard %v: code=%d stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
+	}
+}
+
 func TestHelp_NestedSubcommandAndUnknown(t *testing.T) {
 	explicit, explicitErr, explicitCode := runCLI(t, "help", "tunnel", "start")
 	if explicitCode != 0 || explicitErr != "" {

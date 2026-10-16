@@ -63,7 +63,14 @@ func (c *Connection) Send(data map[string]interface{}, flags ...uint32) error {
 		Body:  data,
 		Id:    c.msgId,
 	}
-	return EncodeMessage(c.clientServer, msg)
+	if err := EncodeMessage(c.clientServer, msg); err != nil {
+		return err
+	}
+	// A RemoteXPC initiator must use fresh odd message IDs for successive
+	// requests (including fire-and-forget HID reports). Reusing the same ID
+	// can cause the peer to reject the message or close the connection.
+	c.msgId += 2
+	return nil
 }
 
 func (c *Connection) Close() error {

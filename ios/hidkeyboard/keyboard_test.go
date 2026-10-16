@@ -1,0 +1,328 @@
+package hidkeyboard
+
+import (
+	"errors"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/bingyuegong/go-ios/ios"
+	"github.com/bingyuegong/go-ios/ios/xpc"
+)
+
+type fakeConn struct {
+	mu       sync.Mutex
+	reply    map[string]interface{}
+	sent     []map[string]interface{}
+	flags    [][]uint32
+	failSend int
+	closed   chan struct{}
+	once     sync.Once
+}
+
+func newFakeConn(reply map[string]interface{}) *fakeConn {
+	return &fakeConn{reply: reply, closed: make(chan struct{})}
+}
+func (f *fakeConn) Send(request map[string]interface{}, flags ...uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, request)
+	f.flags = append(f.flags, flags)
+	if f.failSend == len(f.sent) {
+		return errors.New("send failed")
+	}
+	return nil
+}
+func (f *fakeConn) ReceiveOnServerClientStream() (map[string]interface{}, error) {
+	if f.reply != nil {
+		return f.reply, nil
+	}
+	<-f.closed
+	return nil, errors.New("closed")
+}
+func (f *fakeConn) Close() error { f.once.Do(func() { close(f.closed) }); return nil }
+
+func TestNewRequiresTunnelAndService(t *testing.T) {
+	if _, err := New(ios.DeviceEntry{}); err == nil || !strings.Contains(err.Error(), "tunnel") {
+		t.Fatalf("missing tunnel: %v", err)
+	}
+	device := ios.DeviceEntry{Rsd: ios.RsdHandshakeResponse{Services: map[string]ios.RsdServiceEntry{}}}
+	if _, err := New(device); err == nil || !strings.Contains(err.Error(), ServiceName) {
+		t.Fatalf("missing service: %v", err)
+	}
+}
+func TestKeyboardReports(t *testing.T) {
+	for _, tc := range []struct {
+		letter byte
+		key    byte
+	}{{'a', keyA}, {'v', keyV}} {
+		f := newFakeConn(map[string]interface{}{"serviceID": uint64(0x100000099)})
+		c := &Connection{conn: f, timeout: time.Second}
+		if err := c.PressCommandLetter(tc.letter); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.sent) != 5 {
+			t.Fatalf("requests = %d, want create, Command down, letter down, letter up, Command up", len(f.sent))
+		}
+		if !reflect.DeepEqual(f.flags[0], []uint32{xpc.HeartbeatRequestFlag}) {
+			t.Fatalf("unexpected create reply flags %v", f.flags)
+		}
+		for _, flags := range f.flags[1:] {
+			if len(flags) != 0 {
+				t.Fatalf("unexpected report reply flags %v", f.flags)
+			}
+		}
+		if f.sent[0]["featureIdentifier"] != featureName || f.sent[0]["messageType"] != "Request" {
+			t.Fatal("wrong create envelope")
+		}
+		payload := f.sent[0]["payload"].(map[string]interface{})["createService"].(map[string]interface{})["_0"].(map[string]interface{})
+		if payload["_ServiceID"] != keyboardServiceID || payload["PrimaryUsage"] != uint64(6) || payload["PrimaryUsagePage"] != uint64(1) {
+			t.Fatal("wrong keyboard usage")
+		}
+		storage := payload["_CoreDevice_codablePropertyStorage"].(map[string]interface{})
+		if storage["UniversalControlVirtualService"].(map[string]interface{})["bool"] != true || !reflect.DeepEqual(storage["ReportDescriptor"].(map[string]interface{})["data"], keyboardDescriptor) {
+			t.Fatal("wrong keyboard descriptor")
+		}
+		for i, keys := range [][]byte{{keyCommand}, {keyCommand, tc.key}, {keyCommand}, nil} {
+			request := f.sent[i+1]
+			if request["featureIdentifier"] != featureName {
+				t.Fatal("wrong send feature")
+			}
+			send := request["payload"].(map[string]interface{})["send"].(map[string]interface{})
+			if send["_1"] != uint64(0x100000099) {
+				t.Fatal("response service ID not used")
+			}
+			report := send["_0"].([]byte)
+			if len(report) != 39 || report[0] != 1 {
+				t.Fatalf("bad report: %x", report)
+			}
+			want := buildReport(keys, 0)
+			if !reflect.DeepEqual(report[:31], want[:31]) || report[37] != 0 || report[38] != 0 {
+				t.Fatalf("bad key state: %x", report)
+			}
+		}
+	}
+}
+func TestParseKeys(t *testing.T) {
+	for _, tc := range []struct {
+		names []string
+		want  []byte
+	}{
+		{[]string{"Command", "SHIFT", "v"}, []byte{0xe3, 0xe1, 0x19}},
+		{[]string{"ctrl", "alt", "delete"}, []byte{0xe0, 0xe2, 0x4c}},
+		{[]string{"a", "z", "1", "0"}, []byte{0x04, 0x1d, 0x1e, 0x27}},
+		{[]string{"f1", "f12", "f13", "f24"}, []byte{0x3a, 0x45, 0x68, 0x73}},
+		{[]string{"forwarddelete", "backspace", "up"}, []byte{0x4c, 0x2a, 0x52}},
+		{[]string{"kp1", "kp9", "kp0", "kpenter"}, []byte{0x59, 0x61, 0x62, 0x58}},
+		{[]string{"semicolon", "quote", "backslash"}, []byte{0x33, 0x34, 0x31}},
+		{[]string{"rcmd", "rshift", "hid:0xef"}, []byte{0xe7, 0xe5, 0xef}},
+		{[]string{"hid:0x05"}, []byte{0x05}},
+		{[]string{"hid:0x65", "f1"}, []byte{0x65, 0x3a}},
+	} {
+		got, err := ParseKeys(tc.names)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("ParseKeys(%q) = %x, %v; want %x", tc.names, got, err, tc.want)
+		}
+	}
+	for _, names := range [][]string{
+		nil, {"command", "cmd"}, {"a", "hid:0x04"},
+		{"hid:0x03"}, {"hid:0xf0"}, {"hid:0x100"}, {"hid:0xzz"},
+		{"fn:0x03"}, {"fn:0x05", "b"}, {"fn:0x65", "b"}, {"fn:0xf0"}, {"fn:0xzz"}, {"fn"}, {"fn", "b"}, {"fn", "hid:0xfe"},
+		{"f0"}, {"f25"}, {"unknown"}, {"a", "b", "c", "d", "e", "f", "g"},
+	} {
+		if _, err := ParseKeys(names); err == nil {
+			t.Fatalf("ParseKeys accepted %q", names)
+		}
+	}
+}
+
+func TestPressKeysReportSequence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		keys []byte
+		want [][]byte
+	}{
+		{"Command+Shift+V", []byte{keyV, 0xe1, keyCommand}, [][]byte{{0xe1}, {0xe1, keyCommand}, {0xe1, keyCommand, keyV}, {0xe1, keyCommand}, nil}},
+		{"Control+Alt+Delete", []byte{0x4c, 0xe2, 0xe0}, [][]byte{{0xe2}, {0xe2, 0xe0}, {0xe2, 0xe0, 0x4c}, {0xe2, 0xe0}, nil}},
+		{"TwoLetters", []byte{keyA, keyV}, [][]byte{{keyA, keyV}, nil}},
+		{"ModifierOnly", []byte{keyCommand}, [][]byte{{keyCommand}, nil}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeConn(map[string]interface{}{"serviceID": keyboardServiceID})
+			c := &Connection{conn: f, timeout: time.Second}
+			if err := c.PressKeys(tc.keys); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.sent) != len(tc.want)+1 {
+				t.Fatalf("sent %d requests, want %d", len(f.sent), len(tc.want)+1)
+			}
+			for i, keys := range tc.want {
+				report := f.sent[i+1]["payload"].(map[string]interface{})["send"].(map[string]interface{})["_0"].([]byte)
+				if !reflect.DeepEqual(report[:31], buildReport(keys, 0)[:31]) {
+					t.Fatalf("report %d: got %x, want keys %x", i, report[:31], keys)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionKeepsOneKeyboardRegisteredAcrossCommands(t *testing.T) {
+	f := newFakeConn(map[string]interface{}{"serviceID": uint64(0x100000099)})
+	c := &Connection{conn: f, timeout: time.Second}
+	session, err := c.StartSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Merely opening and keeping the session idle must not press any keys.
+	if len(f.sent) != 1 {
+		t.Fatalf("idle session sent %d messages, want create only", len(f.sent))
+	}
+	for _, keys := range [][]byte{{keyCommand, keyV}, {0xe1, keyA}} {
+		if err := session.PressKeys(keys); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatalf("repeated close: %v", err)
+	}
+	if err := session.PressKeys([]byte{keyA}); err == nil {
+		t.Fatal("pressed after session close")
+	}
+	select {
+	case <-f.closed:
+	default:
+		t.Fatal("session close did not close connection")
+	}
+	want := [][]byte{{keyCommand}, {keyCommand, keyV}, {keyCommand}, nil, {0xe1}, {0xe1, keyA}, {0xe1}, nil, nil}
+	if len(f.sent) != len(want)+1 {
+		t.Fatalf("sent %d messages, want %d", len(f.sent), len(want)+1)
+	}
+	for i, keys := range want {
+		if _, ok := f.sent[i+1]["payload"].(map[string]interface{})["createService"]; ok {
+			t.Fatalf("created virtual keyboard again for report %d", i)
+		}
+		report := f.sent[i+1]["payload"].(map[string]interface{})["send"].(map[string]interface{})["_0"].([]byte)
+		if !reflect.DeepEqual(report[:31], buildReport(keys, 0)[:31]) {
+			t.Fatalf("report %d = %x, want keys %x", i, report[:31], keys)
+		}
+	}
+}
+
+func TestSessionReleasesAfterFailedSendAndClose(t *testing.T) {
+	f := newFakeConn(map[string]interface{}{"serviceID": keyboardServiceID})
+	c := &Connection{conn: f, timeout: time.Second}
+	session, err := c.StartSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.failSend = 3 // create, modifier, failed ordinary key
+	if err := session.PressKeys([]byte{keyCommand, keyV}); err == nil || !strings.Contains(err.Error(), "send failed") {
+		t.Fatalf("expected report failure, got %v", err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.sent) != 5 {
+		t.Fatalf("sent %d messages; expected create, modifier, failed key, release, release at close", len(f.sent))
+	}
+	for _, i := range []int{3, 4} {
+		report := f.sent[i]["payload"].(map[string]interface{})["send"].(map[string]interface{})["_0"].([]byte)
+		if !reflect.DeepEqual(report[1:31], make([]byte, 30)) {
+			t.Fatalf("message %d did not release all keys: %x", i, report)
+		}
+	}
+}
+
+func TestSessionCloseClosesConnectionEvenIfReleaseFails(t *testing.T) {
+	f := newFakeConn(map[string]interface{}{"serviceID": keyboardServiceID})
+	c := &Connection{conn: f, timeout: time.Second}
+	session, err := c.StartSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.failSend = 2 // create, then failed release at close
+	if err := session.Close(); err == nil || !strings.Contains(err.Error(), "release all keyboard keys") {
+		t.Fatalf("expected release error, got %v", err)
+	}
+	select {
+	case <-f.closed:
+	default:
+		t.Fatal("connection remained open after failed release")
+	}
+}
+
+func TestReportGoldenBits(t *testing.T) {
+	a := buildReport([]byte{keyCommand, keyA}, 0x010203040506)
+	if a[1] != 0x10 || a[29] != 0x08 || !reflect.DeepEqual(a[31:37], []byte{6, 5, 4, 3, 2, 1}) {
+		t.Fatalf("wrong Command+A report %x", a)
+	}
+	v := buildReport([]byte{keyCommand, keyV}, 0)
+	if v[4] != 0x02 || v[29] != 0x08 {
+		t.Fatalf("wrong Command+V report %x", v)
+	}
+}
+func TestReleaseOnFailedReport(t *testing.T) {
+	for _, failSend := range []int{2, 3, 4, 5} {
+		f := newFakeConn(map[string]interface{}{"serviceID": keyboardServiceID})
+		f.failSend = failSend
+		c := &Connection{conn: f, timeout: time.Second}
+		if err := c.PressCommandLetter('v'); err == nil || !strings.Contains(err.Error(), "send failed") {
+			t.Fatalf("send %d: expected error, got %v", failSend, err)
+		}
+		if len(f.sent) == 0 {
+			t.Fatalf("send %d: no reports", failSend)
+		}
+		last := f.sent[len(f.sent)-1]["payload"].(map[string]interface{})["send"].(map[string]interface{})["_0"].([]byte)
+		if !reflect.DeepEqual(last[1:31], make([]byte, 30)) {
+			t.Fatalf("send %d: must attempt to release all keys: %x", failSend, last)
+		}
+	}
+}
+func TestReleaseAfterFailedSecondModifier(t *testing.T) {
+	f := newFakeConn(map[string]interface{}{"serviceID": keyboardServiceID})
+	f.failSend = 3 // create, first modifier, then failed second modifier
+	c := &Connection{conn: f, timeout: time.Second}
+	if err := c.PressKeys([]byte{0xe1, keyCommand, keyV}); err == nil || !strings.Contains(err.Error(), "send failed") {
+		t.Fatalf("expected second modifier send error, got %v", err)
+	}
+	if len(f.sent) != 4 {
+		t.Fatalf("expected unconditional all-keys release, sent %d requests", len(f.sent))
+	}
+	last := f.sent[3]["payload"].(map[string]interface{})["send"].(map[string]interface{})["_0"].([]byte)
+	if !reflect.DeepEqual(last[1:31], make([]byte, 30)) {
+		t.Fatalf("modifier failure did not release all keys: %x", last)
+	}
+}
+
+func TestRejectUnsupportedBeforeSending(t *testing.T) {
+	f := newFakeConn(map[string]interface{}{})
+	c := &Connection{conn: f, timeout: time.Second}
+	if err := c.PressCommandLetter('b'); err == nil || len(f.sent) != 0 {
+		t.Fatalf("unsupported key sent: %v", err)
+	}
+}
+func TestCreateServiceErrorAndTimeout(t *testing.T) {
+	f := newFakeConn(map[string]interface{}{"error": "denied"})
+	c := &Connection{conn: f, timeout: time.Second}
+	if err := c.PressCommandLetter('a'); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("missing service error: %v", err)
+	}
+	if len(f.sent) != 1 {
+		t.Fatalf("pressed after rejection: %d", len(f.sent))
+	}
+	blocked := newFakeConn(nil)
+	c = &Connection{conn: blocked, timeout: time.Millisecond}
+	if err := c.PressCommandLetter('a'); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("missing timeout: %v", err)
+	}
+	select {
+	case <-blocked.closed:
+	default:
+		t.Fatal("timeout did not close connection")
+	}
+}

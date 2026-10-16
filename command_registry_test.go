@@ -85,6 +85,27 @@ func TestPasteboardRegisteredAsDeviceCommand(t *testing.T) {
 	t.Fatal("pasteboard command not registered")
 }
 
+func TestKeyboardRegisteredAsDeviceCommand(t *testing.T) {
+	for _, registered := range deviceCommands {
+		if registered.name == "keyboard" {
+			if !registered.match(docopt.Opts{"keyboard": true}) {
+				t.Fatal("keyboard command does not match")
+			}
+			return
+		}
+	}
+	t.Fatal("keyboard command not registered")
+}
+
+func TestDeviceIndependentKeyboardCommand(t *testing.T) {
+	if !isDeviceIndependentKeyboardCommand(docopt.Opts{"keyboard": true}) {
+		t.Fatal("keyboard input must not resolve a new device session")
+	}
+	if isDeviceIndependentKeyboardCommand(docopt.Opts{"keyboard": false}) {
+		t.Fatal("unrelated command treated as keyboard")
+	}
+}
+
 func TestNeedsAutomaticTunnelInfo(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -103,6 +124,7 @@ func TestNeedsAutomaticTunnelInfo(t *testing.T) {
 		{name: "file needs tunnel", args: docopt.Opts{"file": true}, want: true},
 		{name: "rsd needs tunnel", args: docopt.Opts{"rsd": true}, want: true},
 		{name: "pasteboard needs tunnel", args: docopt.Opts{"pasteboard": true}, want: true},
+		{name: "keyboard uses existing daemon without device resolution", args: docopt.Opts{"keyboard": true}, want: false},
 		{name: "display info needs tunnel", args: docopt.Opts{"info": true, "display": true}, want: true},
 		{name: "plain info stays tunnel-free", args: docopt.Opts{"info": true}, want: false},
 		{name: "syslog needs tunnel when available", args: docopt.Opts{"syslog": true}, want: true},
