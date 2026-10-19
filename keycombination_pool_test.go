@@ -326,6 +326,68 @@ func TestManagedKeyboardDaemonRefusesUnverifiedPID(t *testing.T) {
 	}
 }
 
+func TestDeviceDaemonLockSerializesActions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keyboard.json")
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- withDeviceDaemonLock(path, func() error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	select {
+	case <-firstEntered:
+	case err := <-firstDone:
+		t.Fatalf("first lock failed: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("first lock was not acquired")
+	}
+
+	secondAttempting := make(chan struct{})
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		close(secondAttempting)
+		secondDone <- withDeviceDaemonLock(path, func() error {
+			close(secondEntered)
+			return nil
+		})
+	}()
+	<-secondAttempting
+	overlapped := false
+	select {
+	case <-secondEntered:
+		overlapped = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseFirst)
+	for _, done := range []<-chan error{firstDone, secondDone} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("locking failed: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("lock was not released")
+		}
+	}
+	if overlapped {
+		t.Fatal("concurrent daemon action entered while the lock was held")
+	}
+}
+
+func TestProcessExistsCurrentProcess(t *testing.T) {
+	if !processExists(os.Getpid()) {
+		t.Fatal("current process was reported as absent")
+	}
+	if processExists(0) {
+		t.Fatal("PID zero was reported as a process")
+	}
+}
+
 func TestBackoffGrowsAndIsCapped(t *testing.T) {
 	if got := backoffFor(1); got != 5*time.Second {
 		t.Fatalf("backoff(1) = %s", got)

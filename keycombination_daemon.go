@@ -470,10 +470,11 @@ func withDeviceDaemonLock(path string, action func() error) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	unlock, err := lockDeviceDaemonFile(lock)
+	if err != nil {
 		return err
 	}
-	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
+	defer unlock()
 	return action()
 }
 
@@ -505,10 +506,6 @@ func containsUDID(udids []string, target string) bool {
 		}
 	}
 	return false
-}
-
-func processExists(pid int) bool {
-	return pid > 0 && syscall.Kill(pid, 0) == nil
 }
 
 func startDeviceKeyboardDaemon(udid string, args docopt.Opts) error {
@@ -561,7 +558,7 @@ func startDeviceKeyboardDaemon(udid string, args docopt.Opts) error {
 		cmd := exec.Command(executable, argv...)
 		cmd.Env = append(os.Environ(), "GO_IOS_KEYBOARD_BACKGROUND=1", "GO_IOS_KEYBOARD_TOKEN="+token)
 		cmd.Stdin = nil
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		cmd.SysProcAttr = keyboardDaemonSysProcAttr()
 		cmd.Stdout, cmd.Stderr = logFile, logFile
 		err = cmd.Start()
 		_ = logFile.Close()
