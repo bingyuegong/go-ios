@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
@@ -88,7 +89,9 @@ func normalizeUsageFlags(usage string) string {
 }
 
 func main() {
-	Main()
+	if code := runLoggedCLI(os.Args[1:], Main); code != 0 {
+		os.Exit(code)
+	}
 }
 
 var version = func() string {
@@ -98,18 +101,10 @@ var version = func() string {
 	return "local-build"
 }()
 
-// Main Exports main for testing
-func Main() {
-	helpCatalog, err := clihelp.Load()
-	exitIfError("failed loading help definitions", err)
-	if handled, exitCode := helpCatalog.WriteHelp(os.Args[1:], version, os.Stdout, os.Stderr); handled {
-		if exitCode != 0 {
-			os.Exit(exitCode)
-		}
-		return
-	}
-
-	usage := fmt.Sprintf(`go-ios %s
+// cliUsage is shared by command dispatch and the execution deadline classifier.
+// Keeping one grammar prevents valid options from bypassing the screenshot limit.
+func cliUsage() string {
+	return fmt.Sprintf(`go-ios %s
 
 Usage:
   ios --version | version [options]
@@ -698,22 +693,43 @@ The commands work as following:
                                                                     iOS 11+ only (Use --force to try on older versions).
 
   `, version)
+}
+
+// Main Exports main for testing
+func Main() {
+	helpCatalog, err := clihelp.Load()
+	exitIfError("failed loading help definitions", err)
+	if handled, exitCode := helpCatalog.WriteHelp(os.Args[1:], version, os.Stdout, os.Stderr); handled {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+		return
+	}
+	usage := cliUsage()
 	// 将 os.Args 中的单横线多字符选项（如 -app、-bundleid）转换为双横线形式（--app、--bundleid），
 	// 以兼容用户的简化输入，同时让 docopt 能正确解析。
 	os.Args = normalizeShortFlags(os.Args)
 	// 同步修正 usage 字符串，把其中的单横线多字符选项也改为双横线，
 	// 避免 docopt 在解析 Usage 模式时把 -xxx 的首字母当作短选项处理。
 	usage = normalizeUsageFlags(usage)
+	parseStarted := time.Now()
+	diagnosticInfo("command parsing started", "args", os.Args[1:])
 	arguments, err := docopt.ParseDoc(usage)
+	if err != nil {
+		diagnosticError("command parsing failed", "duration_ms", time.Since(parseStarted).Milliseconds(), "error", err)
+	}
 	exitIfError("failed parsing args", err)
 	configureCLI(arguments)
+	diagnosticInfo("command parsing completed", "duration_ms", time.Since(parseStarted).Milliseconds())
 	if dispatchCommand(commandContext{Args: arguments}, preProxyCommands) {
 		return
 	}
 
 	if !screencordUsesDirectUsbmux(arguments) {
 		proxyUrl, _ := arguments.String("--proxyurl")
+		diagnosticInfo("proxy configuration started", "url", proxyUrl)
 		exitIfError("could not parse proxy url", ios.UseHttpProxy(proxyUrl))
+		diagnosticInfo("proxy configuration completed")
 	}
 
 	if dispatchCommand(commandContext{Args: arguments}, globalCommands) {
@@ -726,6 +742,8 @@ The commands work as following:
 	device := ios.DeviceEntry{}
 	if !isDeviceIndependentKeyboardCommand(arguments) {
 		device = resolveDevice(arguments, tunnelInfo)
+	} else {
+		diagnosticInfo("device resolution skipped", "reason", "keyboard command uses independent daemon")
 	}
 
 	if dispatchCommand(commandContext{Args: arguments, Device: device}, deviceCommands) {
@@ -1452,27 +1470,86 @@ func printDeviceName(device ios.DeviceEntry) {
 }
 
 func saveScreenshot(device ios.DeviceEntry, outputPath string) {
+	// Return through captureScreenshot first so ordinary failures run Close.
+	// The process deadline is still the final bound if Close itself blocks.
+	exitIfError("Taking screenshot failed", captureScreenshot(device, outputPath))
+}
+
+func captureScreenshot(device ios.DeviceEntry, outputPath string) error {
+	started := time.Now()
+	diagnosticInfo("screenshot command started", "udid", device.Properties.SerialNumber, "output", outputPath)
 	screenshotService, err := instruments.NewScreenshotService(device)
-	exitIfError("Starting screenshot service failed", err)
+	if err != nil {
+		return fmt.Errorf("starting screenshot service: %w", err)
+	}
 	defer screenshotService.Close()
 
 	imageBytes, err := screenshotService.TakeScreenshot()
-	exitIfError("Taking screenshot failed", err)
+	if err != nil {
+		return err
+	}
 
 	if outputPath == "" {
 		timestamp := time.Now().Format("20060102150405")
 		outputPath, err = filepath.Abs("./screenshot" + timestamp + ".png")
-		exitIfError("getting filepath failed", err)
+		if err != nil {
+			return fmt.Errorf("getting screenshot path: %w", err)
+		}
 	}
 
-	err = os.WriteFile(outputPath, imageBytes, 0o777)
-	exitIfError("write file failed", err)
+	diagnosticInfo("screenshot file write started", "udid", device.Properties.SerialNumber, "output", outputPath, "bytes", len(imageBytes))
+	writeStarted := time.Now()
+	if err := writeScreenshotFile(outputPath, bytes.NewReader(imageBytes)); err != nil {
+		diagnosticError("screenshot file write failed", "udid", device.Properties.SerialNumber, "output", outputPath, "duration_ms", time.Since(writeStarted).Milliseconds(), "error", err)
+		return fmt.Errorf("writing screenshot: %w", err)
+	}
+	diagnosticInfo("screenshot file write completed", "udid", device.Properties.SerialNumber, "output", outputPath, "duration_ms", time.Since(writeStarted).Milliseconds())
+	diagnosticInfo("screenshot command completed", "udid", device.Properties.SerialNumber, "output", outputPath, "duration_ms", time.Since(started).Milliseconds())
 
 	if JSONdisabled {
 		fmt.Println(outputPath)
 	} else {
 		slog.Info("File saved successfully", "outputPath", outputPath)
 	}
+	return nil
+}
+
+// Stage beside the destination, then publish only a complete, closed file.
+// A hard process exit can leave this invocation's hidden .part file, but never
+// truncates an existing screenshot or exposes a partly written final image.
+func writeScreenshotFile(outputPath string, source io.Reader) error {
+	mode := os.FileMode(0o600) // Screenshots and unfinished staging files are private.
+	if info, err := os.Lstat(outputPath); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("screenshot destination must be a regular file: %s", outputPath)
+		}
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(outputPath), ".go-ios-screenshot-*.part")
+	if err != nil {
+		return err
+	}
+	stagingPath := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(stagingPath) // Only the exact staging file created above.
+	}()
+	written, err := io.Copy(file, source)
+	if err != nil {
+		return err
+	}
+	if written == 0 {
+		return fmt.Errorf("screenshot image is empty")
+	}
+	if err := file.Chmod(mode); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(stagingPath, outputPath)
 }
 
 func setLocation(device ios.DeviceEntry, lat string, lon string) {
@@ -2153,16 +2230,29 @@ func watchDeviceDetach(ctx context.Context, udid string, port int) {
 }
 
 func deviceWithRsdProvider(device ios.DeviceEntry, udid string, address string, rsdPort int) ios.DeviceEntry {
+	started := time.Now()
+	diagnosticInfo("RSD connection started", "udid", device.Properties.SerialNumber, "address", address, "port", rsdPort)
 	rsdService, err := ios.NewWithAddrPortDevice(address, rsdPort, device)
+	if err != nil {
+		diagnosticError("RSD connection failed", "udid", device.Properties.SerialNumber, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+	}
 	exitIfError(fmt.Sprintf("could not connect to RSD, host %s, port %d", address, rsdPort), err)
 	defer rsdService.Close()
+	diagnosticInfo("RSD handshake started", "udid", device.Properties.SerialNumber)
 	rsdProvider, err := rsdService.Handshake()
+	if err != nil {
+		diagnosticError("RSD handshake failed", "udid", device.Properties.SerialNumber, "error", err)
+	}
+	exitIfError("RSD handshake failed", err)
 	device1, err := ios.GetDeviceWithAddress(udid, address, rsdProvider)
+	if err != nil {
+		diagnosticError("RSD device lookup failed", "udid", udid, "error", err)
+	}
+	exitIfError("error getting devicelist", err)
 	device1.UserspaceTUN = device.UserspaceTUN
 	device1.UserspaceTUNHost = device.UserspaceTUNHost
 	device1.UserspaceTUNPort = device.UserspaceTUNPort
-	exitIfError("error getting devicelist", err)
-
+	diagnosticInfo("RSD connection completed", "udid", device1.Properties.SerialNumber, "duration_ms", time.Since(started).Milliseconds())
 	return device1
 }
 

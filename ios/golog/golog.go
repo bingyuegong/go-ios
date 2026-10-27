@@ -28,6 +28,11 @@ const LevelTrace slog.Level = slog.LevelDebug - 4
 // zero state behaves like plain slog without us caching a logger at init time.
 var logger atomic.Pointer[slog.Logger]
 
+// CLI-only stage records are disabled for other applications importing go-ios.
+var diagnosticEnabled atomic.Bool
+
+func EnableDiagnosticStages(enabled bool) { diagnosticEnabled.Store(enabled) }
+
 // SetLogger routes all go-ios logging to l. Passing nil restores the default
 // (slog.Default()). Safe to call concurrently.
 func SetLogger(l *slog.Logger) { logger.Store(l) }
@@ -45,6 +50,32 @@ func Debug(msg string, args ...any) { logl(slog.LevelDebug, msg, args...) }
 func Info(msg string, args ...any)  { logl(slog.LevelInfo, msg, args...) }
 func Warn(msg string, args ...any)  { logl(slog.LevelWarn, msg, args...) }
 func Error(msg string, args ...any) { logl(slog.LevelError, msg, args...) }
+
+// DiagnosticOnlyAttr marks a record for the CLI's file-only diagnostic sink.
+// Applications that do not install that sink may ignore these records.
+const DiagnosticOnlyAttr = "go_ios_diagnostic_only"
+
+func DiagnosticInfo(msg string, args ...any)  { diagnosticLog(slog.LevelInfo, msg, args...) }
+func DiagnosticWarn(msg string, args ...any)  { diagnosticLog(slog.LevelWarn, msg, args...) }
+func DiagnosticError(msg string, args ...any) { diagnosticLog(slog.LevelError, msg, args...) }
+
+func diagnosticLog(level slog.Level, msg string, args ...any) {
+	if !diagnosticEnabled.Load() {
+		return
+	}
+	l := L()
+	ctx := context.Background()
+	if !l.Enabled(ctx, level) {
+		return
+	}
+	var pcs [1]uintptr
+	// runtime.Callers, diagnosticLog, DiagnosticInfo/Warn/Error, caller.
+	runtime.Callers(3, pcs[:])
+	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	r.Add(args...)
+	r.Add(DiagnosticOnlyAttr, true)
+	_ = l.Handler().Handle(ctx, r)
+}
 
 // Enabled reports whether the current logger would emit at the given level.
 // Useful to guard expensive log-argument construction.

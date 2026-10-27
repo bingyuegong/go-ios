@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bingyuegong/go-ios/ios/golog"
 	"github.com/bingyuegong/go-ios/ios/http"
 
 	"github.com/bingyuegong/go-ios/ios/xpc"
@@ -90,23 +91,33 @@ func (muxConn *UsbMuxConnection) ConnectLockdown(deviceID int) (*LockDownConnect
 }
 
 func ConnectToService(device DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
+	started := time.Now()
+	golog.DiagnosticInfo("device service connection started", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "transport", "usbmuxd")
+	golog.DiagnosticInfo("device service startup started", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName)
 	startServiceResponse, err := StartService(device, serviceName)
 	if err != nil {
+		golog.DiagnosticError("device service startup failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, err
 	}
+	golog.DiagnosticInfo("device service startup completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds())
 	pairRecord, err := ReadPairRecord(device.Properties.SerialNumber)
 	if err != nil {
+		golog.DiagnosticError("device pair record read failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, err
 	}
+	golog.DiagnosticInfo("device pair record read completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName)
 
 	muxConn, err := NewUsbMuxConnectionSimple()
 	if err != nil {
+		golog.DiagnosticError("device usbmuxd socket connection failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, fmt.Errorf("Could not connect to usbmuxd socket, is it running? %w", err)
 	}
 	err = muxConn.connectWithStartServiceResponse(device.DeviceID, startServiceResponse, pairRecord)
 	if err != nil {
+		golog.DiagnosticError("device service transport handshake failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, err
 	}
+	golog.DiagnosticInfo("device service connection completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds())
 	return muxConn.ReleaseDeviceConnection(), nil
 }
 
@@ -114,52 +125,76 @@ func ConnectToService(device DeviceEntry, serviceName string) (DeviceConnectionI
 // to the provided service.
 // The 'RSDCheckin' required by shim services is also executed before returning the connection to the caller
 func ConnectToShimService(device DeviceEntry, service string) (DeviceConnectionInterface, error) {
+	started := time.Now()
+	golog.DiagnosticInfo("device shim connection started", "module", logModule, "udid", device.Properties.SerialNumber, "service", service)
 	if !device.SupportsRsd() {
-		return nil, fmt.Errorf("ConnectToShimService: Cannot connect to %s, missing tunnel address and RSD port.  To start the tunnel, run `ios tunnel start`", service)
+		err := fmt.Errorf("ConnectToShimService: Cannot connect to %s, missing tunnel address and RSD port.  To start the tunnel, run `ios tunnel start`", service)
+		golog.DiagnosticError("device shim connection failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", service, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+		return nil, err
 	}
 	port := device.Rsd.GetPort(service)
 	conn, err := ConnectTUNDevice(device.Address, port, device)
 	if err != nil {
+		golog.DiagnosticError("device shim dial failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", service, "address", device.Address, "port", port, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, err
 	}
 	err = RsdCheckin(conn)
 	if err != nil {
+		golog.DiagnosticError("device shim checkin failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", service, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, err
 	}
+	golog.DiagnosticInfo("device shim connection completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", service, "duration_ms", time.Since(started).Milliseconds())
 	return NewDeviceConnectionWithRWC(conn), nil
 }
 
 // ConnectToServiceTunnelIface connects to a service on an iOS17+ device using a XPC over HTTP2 connection
 // It returns a new xpc.Connection
 func ConnectToXpcServiceTunnelIface(device DeviceEntry, serviceName string) (*xpc.Connection, error) {
+	started := time.Now()
+	golog.DiagnosticInfo("device XPC connection started", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName)
 	if !device.SupportsRsd() {
-		return nil, fmt.Errorf("ConnectToXpcServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port. To start the tunnel, run `ios tunnel start`", serviceName)
+		err := fmt.Errorf("ConnectToXpcServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port. To start the tunnel, run `ios tunnel start`", serviceName)
+		golog.DiagnosticError("device XPC connection failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+		return nil, err
 	}
 	port := device.Rsd.GetPort(serviceName)
 
 	conn, err := ConnectTUNDevice(device.Address, port, device)
 	if err != nil {
+		golog.DiagnosticError("device XPC dial failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "address", device.Address, "port", port, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, fmt.Errorf("ConnectToHttp2: failed to dial: %w", err)
 	}
 
 	h, err := http.NewHttpConnection(conn)
 	if err != nil {
+		golog.DiagnosticError("device XPC HTTP2 handshake failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, fmt.Errorf("ConnectToXpcServiceTunnelIface: failed to connect to http2: %w", err)
 	}
-	return CreateXpcConnection(h)
+	xpcConn, err := CreateXpcConnection(h)
+	if err != nil {
+		golog.DiagnosticError("device XPC initialization failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+	} else {
+		golog.DiagnosticInfo("device XPC connection completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds())
+	}
+	return xpcConn, err
 }
 
 func ConnectToServiceTunnelIface(device DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
+	started := time.Now()
+	golog.DiagnosticInfo("device service connection started", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "transport", "RSD tunnel", "address", device.Address)
 	if !device.SupportsRsd() {
-		return nil, fmt.Errorf("ConnectToServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port. To start the tunnel, run `ios tunnel start`", serviceName)
+		err := fmt.Errorf("ConnectToServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port. To start the tunnel, run `ios tunnel start`", serviceName)
+		golog.DiagnosticError("device tunnel service connection failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "error", err)
+		return nil, err
 	}
 	port := device.Rsd.GetPort(serviceName)
-
+	golog.DiagnosticInfo("device tunnel dial started", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "address", device.Address, "port", port)
 	conn, err := ConnectTUNDevice(device.Address, port, device)
 	if err != nil {
+		golog.DiagnosticError("device tunnel dial failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return nil, fmt.Errorf("ConnectToServiceTunnelIface: failed to connect to tunnel: %w", err)
 	}
-
+	golog.DiagnosticInfo("device service connection completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "duration_ms", time.Since(started).Milliseconds())
 	return NewDeviceConnectionWithRWC(conn), nil
 }
 

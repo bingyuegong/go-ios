@@ -256,6 +256,13 @@ func (dtxConn *Connection) AddDefaultChannelReceiver(messageDispatcher Dispatche
 // RequestChannelIdentifier requests a channel to be opened on the Connection with the given identifier,
 // an automatically assigned channelCode and a Dispatcher for receiving messages.
 func (dtxConn *Connection) RequestChannelIdentifier(identifier string, messageDispatcher Dispatcher, opts ...ChannelOption) *Channel {
+	channel, _ := dtxConn.RequestChannelIdentifierWithError(identifier, messageDispatcher, opts...)
+	return channel
+}
+
+// RequestChannelIdentifierWithError reports a failed DTX channel request to
+// callers that must not continue using a channel the device never opened.
+func (dtxConn *Connection) RequestChannelIdentifierWithError(identifier string, messageDispatcher Dispatcher, opts ...ChannelOption) (*Channel, error) {
 	dtxConn.mutex.Lock()
 	defer dtxConn.mutex.Unlock()
 	code := dtxConn.channelCodeCounter
@@ -266,23 +273,30 @@ func (dtxConn *Connection) RequestChannelIdentifier(identifier string, messageDi
 	auxiliary.AddInt32(code)
 	arch, _ := nskeyedarchiver.ArchiveBin(identifier)
 	auxiliary.AddBytes(arch)
-	golog.Debug("Requesting channel", "module", logModule, "channel_id", identifier)
+	started := time.Now()
+	golog.DiagnosticInfo("DTX channel request started", "module", logModule, "channel_id", identifier, "timeout", dtxConn.globalChannel.timeout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), dtxConn.globalChannel.timeout)
 	defer cancel()
 	rply, err := dtxConn.globalChannel.sendAndAwaitReply(ctx, true, Methodinvocation, payload, auxiliary)
 	golog.Debug("channel request reply", "module", logModule, "channel_id", identifier, "reply", rply)
-	if err != nil {
-		golog.Error("failed requesting channel", "module", logModule, "channel_id", identifier, "error", err)
+	if err == nil && rply.HasError() {
+		err = fmt.Errorf("device rejected DTX channel %q: %v", identifier, rply.Payload)
 	}
-	golog.Debug("Channel open", "module", logModule, "channel_id", identifier)
+	if err != nil {
+		golog.DiagnosticError("DTX channel request failed", "module", logModule, "channel_id", identifier, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+	} else {
+		golog.DiagnosticInfo("DTX channel request completed", "module", logModule, "channel_id", identifier, "duration_ms", time.Since(started).Milliseconds())
+	}
+	// Preserve the legacy API's channel behavior for existing callers. Callers
+	// using WithError, such as screenshot, can stop immediately on failure.
 	channel := &Channel{channelCode: code, channelName: identifier, messageIdentifier: 1, connection: dtxConn, messageDispatcher: messageDispatcher, responseWaiters: map[int]chan Message{}, defragmenters: map[int]*FragmentDecoder{}, timeout: 5 * time.Second}
 	dtxConn.activeChannels.Store(code, channel)
 	for _, opt := range opts {
 		opt(channel)
 	}
 
-	return channel
+	return channel, err
 }
 
 func (dtxConn *Connection) close(err error) {

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/bingyuegong/go-ios/ios/golog"
 
 	plist "howett.net/plist"
 )
@@ -116,10 +119,20 @@ func (muxConn *UsbMuxConnection) ListDevices() (DeviceList, error) {
 // ListDevices returns a DeviceList containing data about all
 // currently connected iOS devices using a new UsbMuxConnection
 func ListDevices() (DeviceList, error) {
+	started := time.Now()
+	golog.DiagnosticInfo("usbmuxd device listing started", "module", logModule)
 	muxConnection, err := NewUsbMuxConnectionSimple()
 	if err != nil {
+		golog.DiagnosticError("usbmuxd connection failed", "module", logModule, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return DeviceList{}, err
 	}
+	golog.DiagnosticInfo("usbmuxd connection completed", "module", logModule, "duration_ms", time.Since(started).Milliseconds())
 	defer muxConnection.Close()
-	return muxConnection.ListDevices()
+	devices, err := muxConnection.ListDevices()
+	if err != nil {
+		golog.DiagnosticError("usbmuxd device listing failed", "module", logModule, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+	} else {
+		golog.DiagnosticInfo("usbmuxd device listing completed", "module", logModule, "duration_ms", time.Since(started).Milliseconds(), "count", len(devices.DeviceList))
+	}
+	return devices, err
 }

@@ -3,6 +3,7 @@ package instruments
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/bingyuegong/go-ios/ios"
 	dtx "github.com/bingyuegong/go-ios/ios/dtx_codec"
@@ -39,22 +40,28 @@ func connectInstrumentsWithMsgDispatcher(device ios.DeviceEntry, dispatcher dtx.
 }
 
 func connectInstruments(device ios.DeviceEntry) (*dtx.Connection, error) {
+	started := time.Now()
 	if device.SupportsRsd() {
-		golog.Debug("connecting to service", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceNameRsd)
+		golog.DiagnosticInfo("instruments connection started", "module", logModule, "udid", device.Properties.SerialNumber, "transport", "RSD tunnel", "service", serviceNameRsd)
 		dtxConn, err := dtx.NewTunnelConnection(device, serviceNameRsd)
 		if err != nil {
+			golog.DiagnosticError("instruments connection failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceNameRsd, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 			return nil, instrumentsUnavailableErr(device, serviceNameRsd, err)
 		}
+		golog.DiagnosticInfo("instruments connection completed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceNameRsd, "duration_ms", time.Since(started).Milliseconds())
 		return dtxConn, nil
 	}
+	golog.DiagnosticInfo("instruments connection started", "module", logModule, "udid", device.Properties.SerialNumber, "transport", "usbmuxd", "service", serviceName)
 	dtxConn, err := dtx.NewUsbmuxdConnection(device, serviceName)
 	if err != nil {
-		golog.Debug("failed connecting to service, trying fallback", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "fallback", serviceNameiOS14)
+		golog.DiagnosticWarn("instruments primary service failed, trying fallback", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceName, "fallback", serviceNameiOS14, "error", err)
 		dtxConn, err = dtx.NewUsbmuxdConnection(device, serviceNameiOS14)
 		if err != nil {
+			golog.DiagnosticError("instruments fallback connection failed", "module", logModule, "udid", device.Properties.SerialNumber, "service", serviceNameiOS14, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 			return nil, instrumentsUnavailableErr(device, serviceNameiOS14, err)
 		}
 	}
+	golog.DiagnosticInfo("instruments connection completed", "module", logModule, "udid", device.Properties.SerialNumber, "duration_ms", time.Since(started).Milliseconds())
 	return dtxConn, nil
 }
 

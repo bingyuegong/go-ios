@@ -23,11 +23,17 @@ type ScreenshotService struct {
 }
 
 func NewScreenshotService(device ios.DeviceEntry) (*ScreenshotService, error) {
+	golog.DiagnosticInfo("screenshot service connection started", "module", logModule, "udid", device.Properties.SerialNumber)
 	dtxConn, err := connectInstruments(device)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("screenshot instruments connection: %w", err)
 	}
-	processControlChannel := dtxConn.RequestChannelIdentifier(screenshotServiceName, loggingDispatcher{dtxConn})
+	processControlChannel, err := dtxConn.RequestChannelIdentifierWithError(screenshotServiceName, loggingDispatcher{dtxConn})
+	if err != nil {
+		dtxConn.Close()
+		return nil, fmt.Errorf("screenshot DTX channel request: %w", err)
+	}
+	golog.DiagnosticInfo("screenshot service connection completed", "module", logModule, "udid", device.Properties.SerialNumber)
 	return &ScreenshotService{channel: processControlChannel, conn: dtxConn}, nil
 }
 
@@ -36,12 +42,21 @@ func (d *ScreenshotService) Close() {
 }
 
 func (d *ScreenshotService) TakeScreenshot() ([]byte, error) {
+	started := time.Now()
+	golog.DiagnosticInfo("screenshot DTX request started", "module", logModule, "selector", "takeScreenshot")
 	msg, err := d.channel.MethodCall("takeScreenshot")
 	if err != nil {
-		return nil, fmt.Errorf("TakeScreenshot: %s", err)
+		golog.DiagnosticError("screenshot DTX request failed", "module", logModule, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+		return nil, fmt.Errorf("TakeScreenshot: %w", err)
 	}
-	imageBytes := msg.Payload[0].([]byte)
-
+	if len(msg.Payload) == 0 {
+		return nil, fmt.Errorf("TakeScreenshot: device returned empty DTX payload")
+	}
+	imageBytes, ok := msg.Payload[0].([]byte)
+	if !ok || len(imageBytes) == 0 {
+		return nil, fmt.Errorf("TakeScreenshot: device returned invalid image payload type %T", msg.Payload[0])
+	}
+	golog.DiagnosticInfo("screenshot DTX response received", "module", logModule, "duration_ms", time.Since(started).Milliseconds(), "bytes", len(imageBytes))
 	return imageBytes, nil
 }
 

@@ -53,6 +53,11 @@ func dispatchTunnelCommand(ctx tunnelCommandContext) bool {
 	if !isTunnelCommand(ctx.Args) {
 		return false
 	}
+	started := time.Now()
+	diagnosticInfo("tunnel command started", "udid", tunnelTargetUDID(ctx.Args))
+	defer func() {
+		diagnosticInfo("tunnel command completed", "udid", tunnelTargetUDID(ctx.Args), "duration_ms", time.Since(started).Milliseconds())
+	}()
 
 	startCommand, _ := ctx.Args.Bool("start")
 	stopCommand, _ := ctx.Args.Bool("stop")

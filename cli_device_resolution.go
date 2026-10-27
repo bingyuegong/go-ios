@@ -1,8 +1,8 @@
 package main
 
 import (
-	"log/slog"
 	"os"
+	"time"
 
 	"github.com/bingyuegong/go-ios/ios"
 	"github.com/bingyuegong/go-ios/ios/tunnel"
@@ -58,13 +58,21 @@ func resolveDevice(arguments docopt.Opts, tunnelInfo tunnelInfoConfig) ios.Devic
 
 	userspaceTunnelPort, userspaceTunnelErr := arguments.Int("--userspace-port")
 
+	lookupStarted := time.Now()
+	diagnosticInfo("device lookup started", "requested_udid", udid)
 	device, err := ios.GetDevice(udid)
+	if err != nil {
+		diagnosticError("device lookup failed", "requested_udid", udid, "duration_ms", time.Since(lookupStarted).Milliseconds(), "error", err)
+	} else {
+		diagnosticInfo("device lookup completed", "requested_udid", udid, "resolved_udid", device.Properties.SerialNumber, "duration_ms", time.Since(lookupStarted).Milliseconds())
+	}
 	if isTunnelCommand(arguments) {
 		return device
 	}
 
 	exitIfError("Device not found: "+udid, err)
 	if addressErr == nil && rsdErr == nil {
+		diagnosticInfo("device RSD connection started", "udid", device.Properties.SerialNumber, "address", address, "port", rsdPort, "source", "explicit")
 		if userspaceTunnelErr == nil {
 			device.UserspaceTUN = true
 			device.UserspaceTUNHost = userspaceTunnelHost
@@ -74,6 +82,7 @@ func resolveDevice(arguments docopt.Opts, tunnelInfo tunnelInfoConfig) ios.Devic
 	}
 
 	if !needsAutomaticTunnelInfo(arguments) {
+		diagnosticInfo("tunnel info lookup skipped", "udid", device.Properties.SerialNumber, "reason", "command does not require automatic tunnel info")
 		return device
 	}
 
@@ -84,15 +93,18 @@ func resolveDevice(arguments docopt.Opts, tunnelInfo tunnelInfoConfig) ios.Devic
 		resolvedPort = registryPort
 	}
 
+	lookupStarted = time.Now()
+	diagnosticInfo("tunnel info lookup started", "udid", device.Properties.SerialNumber, "host", tunnelInfo.Host, "port", resolvedPort)
 	info, err := tunnel.TunnelInfoForDevice(device.Properties.SerialNumber, tunnelInfo.Host, resolvedPort)
 	if err == nil {
+		diagnosticInfo("tunnel info lookup completed", "udid", device.Properties.SerialNumber, "address", info.Address, "rsd_port", info.RsdPort, "duration_ms", time.Since(lookupStarted).Milliseconds())
 		device.UserspaceTUNPort = info.UserspaceTUNPort
 		device.UserspaceTUNHost = userspaceTunnelHost
 		device.UserspaceTUN = info.UserspaceTUN
 		return deviceWithRsdProvider(device, udid, info.Address, info.RsdPort)
 	}
 
-	slog.Warn("failed to get tunnel info", "udid", device.Properties.SerialNumber)
+	diagnosticWarn("tunnel info lookup failed; falling back to usbmuxd", "udid", device.Properties.SerialNumber, "host", tunnelInfo.Host, "port", resolvedPort, "duration_ms", time.Since(lookupStarted).Milliseconds(), "error", err)
 	return device
 }
 

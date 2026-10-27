@@ -2,11 +2,14 @@ package main_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -165,6 +168,11 @@ func runCLI(t *testing.T, args ...string) (string, string, int) {
 	t.Helper()
 	cmd := exec.Command("go", append([]string{"run", "."}, args...)...)
 	cmd.Dir = "."
+	logDir := t.TempDir()
+	if err := os.Chmod(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "GO_IOS_LOG_DIR="+logDir)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -205,4 +213,108 @@ func assertGolden(t *testing.T, goldenName string, got string) {
 
 func eolFormat(s string) string {
 	return strings.ReplaceAll(s, "\r\n", "\n")
+}
+
+func TestExecutionLogCoversHelpAndFailures(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "ios")
+	build := exec.Command("go", "build", "-o", binary, ".")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build cli: %v: %s", err, output)
+	}
+	logDir := t.TempDir()
+	if err := os.Chmod(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invoke := func(args ...string) (string, string, int) {
+		cmd := exec.Command(binary, args...)
+		cmd.Env = append(os.Environ(), "GO_IOS_LOG_DIR="+logDir)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		if err == nil {
+			return stdout.String(), stderr.String(), 0
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("execute cli: %v", err)
+		}
+		return stdout.String(), stderr.String(), exitErr.ExitCode()
+	}
+	stdout, stderr, code := invoke("--help")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "go-ios") {
+		t.Fatalf("help: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = invoke("version")
+	if code != 0 || stderr != "" || stdout == "" {
+		t.Fatalf("version console changed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	_, stderr, code = invoke("help", "nope")
+	if code == 0 || !strings.Contains(stderr, "unknown help topic") {
+		t.Fatalf("bad help: code=%d stderr=%q", code, stderr)
+	}
+	_, stderr, code = invoke("-u", "nonexistent-device-for-log-test", "screenshot", "-output", "test.png")
+	if code == 0 || !strings.Contains(stderr, "Device not found") || strings.Contains(stderr, "device lookup started") {
+		t.Fatalf("screenshot console changed: code=%d stderr=%q", code, stderr)
+	}
+	_, stderr, code = invoke("-u", "nonexistent-device-for-log-test", "info", "--verbose")
+	if code == 0 || !strings.Contains(stderr, "Device not found") || strings.Contains(stderr, "device lookup started") || strings.Contains(stderr, "command parsing started") {
+		t.Fatalf("non-screenshot console changed: code=%d stderr=%q", code, stderr)
+	}
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var starts, finishes int
+	var loggedStdout, loggedStderr, loggedDiagnostics string
+	var screenshotArgs []string
+	for _, entry := range entries {
+		content, err := os.ReadFile(filepath.Join(logDir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case strings.Contains(entry.Name(), "-events-"):
+			for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+				var event struct {
+					Event    string   `json:"event"`
+					Args     []string `json:"args"`
+					ExitCode *int     `json:"exit_code"`
+				}
+				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					t.Fatal(err)
+				}
+				if event.Event == "start" {
+					starts++
+					if slices.Contains(event.Args, "screenshot") {
+						screenshotArgs = event.Args
+					}
+				} else if event.Event == "finish" {
+					finishes++
+					if event.ExitCode == nil {
+						t.Fatal("finish event missing exit code")
+					}
+				}
+			}
+		case strings.Contains(entry.Name(), "-stdout-"):
+			loggedStdout += string(content)
+		case strings.Contains(entry.Name(), "-stderr-"):
+			loggedStderr += string(content)
+		case strings.Contains(entry.Name(), "-diagnostic-"):
+			loggedDiagnostics += string(content)
+		}
+	}
+	if starts != 5 || finishes != 5 || !strings.Contains(loggedStdout, "go-ios") || !strings.Contains(loggedStderr, "unknown help topic") || !strings.Contains(loggedStderr, "Device not found") || !slices.Contains(screenshotArgs, "nonexistent-device-for-log-test") {
+		t.Fatalf("logs: starts=%d finishes=%d args=%q stdout=%q stderr=%q", starts, finishes, screenshotArgs, loggedStdout, loggedStderr)
+	}
+	for _, phase := range []string{"command parsing started", "command parsing completed", "command dispatch started", "command dispatch completed", "device lookup started", "device lookup failed", "nonexistent-device-for-log-test"} {
+		if !strings.Contains(loggedDiagnostics, phase) {
+			t.Fatalf("diagnostic log missing %q: %s", phase, loggedDiagnostics)
+		}
+	}
+	if !strings.Contains(loggedDiagnostics, "cli_device_resolution.go") || !strings.Contains(loggedDiagnostics, "\"run_id\"") {
+		t.Fatalf("diagnostic log missing source or run ID: %s", loggedDiagnostics)
+	}
+	if strings.Contains(loggedStderr, "device lookup started") || strings.Contains(loggedStderr, "command parsing started") {
+		t.Fatalf("diagnostic stages leaked into console stderr: %s", loggedStderr)
+	}
 }

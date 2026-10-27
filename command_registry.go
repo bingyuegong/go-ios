@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/bingyuegong/go-ios/ios"
 	"github.com/docopt/docopt-go"
 )
@@ -34,7 +36,10 @@ func commandByBool(name string, run func(commandContext)) command {
 func dispatchCommand(ctx commandContext, commands []command) bool {
 	for _, cmd := range commands {
 		if cmd.match(ctx.Args) {
+			started := time.Now()
+			diagnosticInfo("command dispatch started", "command", cmd.name, "udid", ctx.Device.Properties.SerialNumber)
 			cmd.run(ctx)
+			diagnosticInfo("command dispatch completed", "command", cmd.name, "udid", ctx.Device.Properties.SerialNumber, "duration_ms", time.Since(started).Milliseconds())
 			return true
 		}
 	}

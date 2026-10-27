@@ -32,15 +32,8 @@ func configureCLI(arguments docopt.Opts) {
 	}
 
 	handlerOpts := &slog.HandlerOptions{
-		Level: level,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.LevelKey {
-				if lvl, ok := a.Value.Any().(slog.Level); ok && lvl == ios.LevelTrace {
-					a.Value = slog.StringValue("TRACE")
-				}
-			}
-			return a
-		},
+		Level:       level,
+		ReplaceAttr: replaceTraceLevel,
 	}
 
 	var handler slog.Handler
@@ -49,7 +42,7 @@ func configureCLI(arguments docopt.Opts) {
 	} else {
 		handler = slog.NewJSONHandler(os.Stderr, handlerOpts)
 	}
-	logger := slog.New(handler)
+	logger := slog.New(newExecutionCLIHandler(handler))
 
 	slog.SetDefault(logger)
 	ios.SetLogger(logger)
@@ -59,24 +52,10 @@ func configureCLI(arguments docopt.Opts) {
 	} else if verboseLoggingEnabledLong {
 		slog.Info("Set Debug mode")
 	}
-	slog.Debug("parsed arguments", "args", redactArgs(arguments))
+	// The invocation log records the complete original input; detailed stages
+	// and all levels of library logs go to the separate diagnostic stream.
 
 	startAgentFromEnvironment()
-}
-
-func redactArgs(arguments docopt.Opts) map[string]interface{} {
-	redacted := make(map[string]interface{}, len(arguments))
-	for key, value := range arguments {
-		switch key {
-		case "--password", "--p12password", "--proxyurl":
-			if value != nil && value != "" {
-				redacted[key] = "<redacted>"
-				continue
-			}
-		}
-		redacted[key] = value
-	}
-	return redacted
 }
 
 func startAgentFromEnvironment() {
