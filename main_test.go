@@ -2,7 +2,6 @@ package main_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 var (
@@ -264,57 +264,68 @@ func TestExecutionLogCoversHelpAndFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var starts, finishes int
-	var loggedStdout, loggedStderr, loggedDiagnostics string
-	var screenshotArgs []string
+	// 按设备 + 按天归档：未指定 -u 的命令进 default 文件，指定 -u 的进对应设备文件。
+	day := time.Now().Format("20060102")
+	wantFiles := []string{
+		"go-ios-default-" + day + ".log",
+		"go-ios-nonexistent-device-for-log-test-" + day + ".log",
+	}
+	var names []string
 	for _, entry := range entries {
-		content, err := os.ReadFile(filepath.Join(logDir, entry.Name()))
+		if strings.HasSuffix(entry.Name(), ".log") {
+			names = append(names, entry.Name())
+		}
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, wantFiles) {
+		t.Fatalf("log files = %q, want %q", names, wantFiles)
+	}
+	readLog := func(name string) string {
+		content, err := os.ReadFile(filepath.Join(logDir, name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		switch {
-		case strings.Contains(entry.Name(), "-events-"):
-			for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
-				var event struct {
-					Event    string   `json:"event"`
-					Args     []string `json:"args"`
-					ExitCode *int     `json:"exit_code"`
-				}
-				if err := json.Unmarshal([]byte(line), &event); err != nil {
-					t.Fatal(err)
-				}
-				if event.Event == "start" {
-					starts++
-					if slices.Contains(event.Args, "screenshot") {
-						screenshotArgs = event.Args
-					}
-				} else if event.Event == "finish" {
-					finishes++
-					if event.ExitCode == nil {
-						t.Fatal("finish event missing exit code")
-					}
-				}
-			}
-		case strings.Contains(entry.Name(), "-stdout-"):
-			loggedStdout += string(content)
-		case strings.Contains(entry.Name(), "-stderr-"):
-			loggedStderr += string(content)
-		case strings.Contains(entry.Name(), "-diagnostic-"):
-			loggedDiagnostics += string(content)
+		return string(content)
+	}
+	defaultLog, deviceLog := readLog(wantFiles[0]), readLog(wantFiles[1])
+	count := func(s, sub string) int { return strings.Count(s, sub) }
+	if count(defaultLog, `msg="command start"`) != 3 || count(defaultLog, `msg="command finish"`) != 3 {
+		t.Fatalf("default log lifecycle mismatch:\n%s", defaultLog)
+	}
+	if count(deviceLog, `msg="command start"`) != 2 || count(deviceLog, `msg="command finish"`) != 2 || !strings.Contains(deviceLog, "exit_code=1") {
+		t.Fatalf("device log lifecycle mismatch:\n%s", deviceLog)
+	}
+	for _, phase := range []string{"command parsing started", "command parsing completed", "device lookup started", "device lookup failed", "Device not found"} {
+		if !strings.Contains(deviceLog, phase) {
+			t.Fatalf("device log missing %q:\n%s", phase, deviceLog)
 		}
 	}
-	if starts != 5 || finishes != 5 || !strings.Contains(loggedStdout, "go-ios") || !strings.Contains(loggedStderr, "unknown help topic") || !strings.Contains(loggedStderr, "Device not found") || !slices.Contains(screenshotArgs, "nonexistent-device-for-log-test") {
-		t.Fatalf("logs: starts=%d finishes=%d args=%q stdout=%q stderr=%q", starts, finishes, screenshotArgs, loggedStdout, loggedStderr)
+	// 默认 Info 级别：--verbose 只影响控制台，Debug 记录不落盘。
+	if strings.Contains(deviceLog, "level=DEBUG") || strings.Contains(deviceLog, "level=TRACE") {
+		t.Fatalf("debug/trace records written at default level:\n%s", deviceLog)
 	}
-	for _, phase := range []string{"command parsing started", "command parsing completed", "command dispatch started", "command dispatch completed", "device lookup started", "device lookup failed", "nonexistent-device-for-log-test"} {
-		if !strings.Contains(loggedDiagnostics, phase) {
-			t.Fatalf("diagnostic log missing %q: %s", phase, loggedDiagnostics)
-		}
+}
+
+func TestExecutionLogLevelOffWritesNothing(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "ios")
+	build := exec.Command("go", "build", "-o", binary, ".")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build cli: %v: %s", err, output)
 	}
-	if !strings.Contains(loggedDiagnostics, "cli_device_resolution.go") || !strings.Contains(loggedDiagnostics, "\"run_id\"") {
-		t.Fatalf("diagnostic log missing source or run ID: %s", loggedDiagnostics)
+	logDir := t.TempDir()
+	if err := os.Chmod(logDir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(loggedStderr, "device lookup started") || strings.Contains(loggedStderr, "command parsing started") {
-		t.Fatalf("diagnostic stages leaked into console stderr: %s", loggedStderr)
+	cmd := exec.Command(binary, "version")
+	cmd.Env = append(os.Environ(), "GO_IOS_LOG_DIR="+logDir, "GO_IOS_LOG_LEVEL=off")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("version: %v: %s", err, output)
+	}
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("GO_IOS_LOG_LEVEL=off still wrote %d entries", len(entries))
 	}
 }

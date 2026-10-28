@@ -15,7 +15,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -329,7 +328,7 @@ func serveKeyboardDaemonWithStop(listener net.Listener, pool *keyboardPool, targ
 				if response.OK && request.Command == "force-stop" {
 					// The daemon exits itself: the client never kills a potentially
 					// recycled PID read from a state file.
-					os.Exit(0)
+					exitCLI(0)
 				}
 			}
 		}()
@@ -558,11 +557,8 @@ func startDeviceKeyboardDaemon(udid string, args docopt.Opts) error {
 		}
 		cmd := exec.Command(executable, argv...)
 		// The daemon advertises its own PID and owns a separate append-only log.
-		// Run it directly rather than interposing the CLI logging parent, which
-		// would make the advertised PID refer to the wrong process. Unlike a
-		// foreground command it must survive the successful start command's exit.
-		cmd.Env = append(os.Environ(), "GO_IOS_KEYBOARD_BACKGROUND=1", "GO_IOS_KEYBOARD_TOKEN="+token,
-			executionLogChildEnv+"="+strconv.Itoa(os.Getpid()), executionLogDetachedEnv+"=1")
+		// Execution logging runs in-process, so the advertised PID is the daemon itself.
+		cmd.Env = append(os.Environ(), "GO_IOS_KEYBOARD_BACKGROUND=1", "GO_IOS_KEYBOARD_TOKEN="+token)
 		cmd.Stdin = nil
 		cmd.SysProcAttr = keyboardDaemonSysProcAttr()
 		cmd.Stdout, cmd.Stderr = logFile, logFile

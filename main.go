@@ -89,7 +89,10 @@ func normalizeUsageFlags(usage string) string {
 }
 
 func main() {
-	if code := runLoggedCLI(os.Args[1:], Main); code != 0 {
+	startExecutionLog(os.Args[1:])
+	defer recordExecutionPanic()
+	Main()
+	if code := finishExecutionLog(0); code != 0 {
 		os.Exit(code)
 	}
 }
@@ -701,7 +704,7 @@ func Main() {
 	exitIfError("failed loading help definitions", err)
 	if handled, exitCode := helpCatalog.WriteHelp(os.Args[1:], version, os.Stdout, os.Stderr); handled {
 		if exitCode != 0 {
-			os.Exit(exitCode)
+			exitCLI(exitCode)
 		}
 		return
 	}
@@ -720,6 +723,7 @@ func Main() {
 	}
 	exitIfError("failed parsing args", err)
 	configureCLI(arguments)
+	armScreenshotDeadline(arguments)
 	diagnosticInfo("command parsing completed", "duration_ms", time.Since(parseStarted).Milliseconds())
 	if dispatchCommand(commandContext{Args: arguments}, preProxyCommands) {
 		return
@@ -922,7 +926,7 @@ func assistiveTouch(device ios.DeviceEntry, operation string, force bool) {
 
 		if version.LessThan(ios.IOS11()) {
 			slog.Error("iOS Version 11.0+ required to manipulate AssistiveTouch. Use --force to override.", "version", version)
-			os.Exit(1)
+			exitCLI(1)
 		}
 	}
 
@@ -967,7 +971,7 @@ func voiceOver(device ios.DeviceEntry, operation string, force bool) {
 
 		if version.LessThan(ios.IOS11()) {
 			slog.Error("iOS Version 11.0+ required to manipulate VoiceOver. Use --force to override.", "version", version)
-			os.Exit(1)
+			exitCLI(1)
 		}
 	}
 
@@ -1013,7 +1017,7 @@ func zoomTouch(device ios.DeviceEntry, operation string, force bool) {
 
 		if version.LessThan(ios.IOS11()) {
 			slog.Error("iOS Version 11.0+ required to manipulate ZoomTouch. Use --force to override.", "version", version)
-			os.Exit(1)
+			exitCLI(1)
 		}
 	}
 
@@ -1059,7 +1063,7 @@ func timeFormat(device ios.DeviceEntry, operation string, force bool) {
 
 		if version.LessThan(ios.IOS11()) {
 			slog.Error("iOS Version 11.0+ required to manipulate Time Format. Use --force to override.", "version", version)
-			os.Exit(1)
+			exitCLI(1)
 		}
 	}
 
@@ -1178,13 +1182,13 @@ func startDebugProxy(device ios.DeviceEntry, binaryMode bool) {
 				slog.Error("Recovered a panic", "panic", r)
 				proxy.Close()
 				debug.PrintStack()
-				os.Exit(1)
+				exitCLI(1)
 				return
 			}
 		}()
 		err := proxy.Launch(device, binaryMode)
 		slog.Info("DebugProxy Terminated abnormally", "error", err)
-		os.Exit(0)
+		exitCLI(0)
 	}()
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
@@ -2294,7 +2298,7 @@ func exitIfError(msg string, err error) {
 // logFatal logs at error level and exits with status 1 (slog has no Fatal).
 func logFatal(msg string, args ...any) {
 	slog.Error(msg, args...)
-	os.Exit(1)
+	exitCLI(1)
 }
 
 func splitKeyValuePairs(envArgs []string, sep string) map[string]interface{} {

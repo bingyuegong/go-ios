@@ -99,10 +99,10 @@ func runUIRunCommand(ctx commandContext) {
 	case err := <-runErr:
 		slog.Error("ui run: runner failed", "target", target.name, "error", err)
 		stopRunner()
-		os.Exit(1)
+		exitCLI(1)
 	case <-runCtx.Done():
 		slog.Error("ui run: runner ended unexpectedly", "target", target.name)
-		os.Exit(1)
+		exitCLI(1)
 	case sig := <-c:
 		slog.Info("signal received, stopping ui run", "signal", sig.String(), "target", target.name)
 		stopRunner()

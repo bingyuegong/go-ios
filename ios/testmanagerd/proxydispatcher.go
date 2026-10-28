@@ -484,7 +484,10 @@ func (p proxyDispatcher) Dispatch(m dtx.Message) {
 		dtx.SendAckIfNeeded(p.dtxConnection, m)
 	}
 
-	golog.Trace("dispatcher received message", "module", logModule, "id", p.id, "message", m.String())
+	// m.String() 会格式化整条 DTX 消息，仅在 Trace 实际开启时才构造。
+	if golog.Enabled(golog.LevelTrace) {
+		golog.Trace("dispatcher received message", "module", logModule, "id", p.id, "message", m.String())
+	}
 }
 
 func assertArgumentsLengthEqual(m dtx.Message, expectedLength uint) error {

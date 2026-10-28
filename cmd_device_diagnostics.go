@@ -44,6 +44,14 @@ func runScreenshotCommand(ctx commandContext) {
 		exitIfError("failed starting mjpeg", err)
 		return
 	}
+	// 同一设备的截图逐个执行；等待计入整体 20s 预算，等不到锁时退出 124。
+	if !screenshotDeadline.IsZero() {
+		release, ok := acquireScreenshotQueue(executionLogDir, screenshotQueueKey(ctx.Device), screenshotDeadline)
+		if !ok {
+			exitCLI(executionTimeoutExitCode)
+		}
+		defer release()
+	}
 	saveScreenshot(ctx.Device, path)
 }
 

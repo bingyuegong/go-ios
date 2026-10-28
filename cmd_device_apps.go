@@ -118,7 +118,7 @@ func runKillCommand(ctx commandContext) {
 		}
 		if processName == "" {
 			slog.Error("not installed", "bundleID", bundleID)
-			os.Exit(1)
+			exitCLI(1)
 			return
 		}
 	}
@@ -146,5 +146,5 @@ func runKillCommand(ctx commandContext) {
 	} else {
 		slog.Error("process not found", "pid", processID)
 	}
-	os.Exit(1)
+	exitCLI(1)
 }

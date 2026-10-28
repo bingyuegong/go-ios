@@ -540,7 +540,7 @@ func (c uiClient) doHTTPWithClient(client *http.Client, method string, baseURL s
 	exitIfError("failed reading UI response", err)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		fmt.Fprintln(os.Stderr, string(respBody))
-		os.Exit(1)
+		exitCLI(1)
 	}
 	return uiHTTPResponse{StatusCode: resp.StatusCode, Header: resp.Header, Body: respBody}
 }
@@ -556,7 +556,7 @@ func (c uiClient) pipeHTTP(rawURL string) {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(resp.Body)
 		fmt.Fprintln(os.Stderr, string(body))
-		os.Exit(1)
+		exitCLI(1)
 	}
 	_, err = io.Copy(os.Stdout, resp.Body)
 	exitIfError("stream copy failed", err)
