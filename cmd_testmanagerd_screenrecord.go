@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/bingyuegong/go-ios/ios"
 	"github.com/bingyuegong/go-ios/ios/fileservice"
@@ -19,10 +20,14 @@ import (
 const (
 	testmanagerdBundleID       = "com.apple.testmanagerd"
 	testmanagerdAttachmentsDir = "tmp/Attachments"
+
+	testmanagerdDeleteMaxRounds  = 3
+	testmanagerdDeleteRetryDelay = time.Second
 )
 
 type testmanagerdFileService interface {
 	ListDirectory(path string) ([]string, error)
+	ListDirectoryFileNodes(path string) ([]fileservice.FileNode, error)
 	PullFile(path string, writer io.Writer) error
 	RemoveFile(path string) error
 	Close() error
@@ -39,14 +44,16 @@ type testmanagerdCommandDeps struct {
 	stat           func(path string) (os.FileInfo, error)
 	abs            func(path string) (string, error)
 	link           func(oldname, newname string) error
+	sleep          func(time.Duration)
 }
 
 type deleteAllTestmanagerdScreenrecordResult struct {
-	UDID         string `json:"udid"`
-	RemotePath   string `json:"remotePath"`
-	Transport    string `json:"transport"`
-	DeletedCount int    `json:"deletedCount,omitempty"`
-	Output       string `json:"output,omitempty"`
+	UDID         string   `json:"udid"`
+	RemotePath   string   `json:"remotePath"`
+	Transport    string   `json:"transport"`
+	DeletedCount int      `json:"deletedCount,omitempty"`
+	Skipped      []string `json:"skipped,omitempty"`
+	Output       string   `json:"output,omitempty"`
 }
 
 type pullTestmanagerdScreenrecordResult struct {
@@ -73,9 +80,10 @@ func defaultTestmanagerdCommandDeps() testmanagerdCommandDeps {
 		openExclusive: func(path string) (*os.File, error) {
 			return os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		},
-		stat: os.Stat,
-		abs:  filepath.Abs,
-		link: os.Link,
+		stat:  os.Stat,
+		abs:   filepath.Abs,
+		link:  os.Link,
+		sleep: time.Sleep,
 	}
 }
 
@@ -89,6 +97,9 @@ func runDeleteAllTestmanagerdScreenrecordCommand(ctx commandContext) {
 
 	if JSONdisabled {
 		fmt.Printf("Deleted %d testmanagerd screen recording attachments from %s on device %s using %s\n", result.DeletedCount, result.RemotePath, result.UDID, result.Transport)
+		if len(result.Skipped) != 0 {
+			fmt.Printf("Skipped %d non-UUID entries: %s\n", len(result.Skipped), strings.Join(result.Skipped, ", "))
+		}
 		return
 	}
 	fmt.Println(convertToJSONString(result))
@@ -140,53 +151,100 @@ func deleteAllTestmanagerdScreenrecordNative(device ios.DeviceEntry, deps testma
 	if err != nil {
 		return result, fmt.Errorf("list testmanagerd screen recording attachments: %w", err)
 	}
-	targets, err := normalizeTestmanagerdAttachmentPaths(entries)
+	targets, skipped, err := normalizeTestmanagerdAttachmentPaths(entries)
 	if err != nil {
 		return result, err
 	}
+	result.Skipped = skipped
+	if len(skipped) != 0 {
+		slog.Warn("Skipping testmanagerd attachment entries that are not UUID-named recordings; they will not be deleted", "count", len(skipped), "entries", skipped)
+	}
+	// Every UUID-named entry (including UUID.sb-* atomic-write leftovers) is a
+	// testmanagerd recording artifact. Each round deletes everything that is
+	// still present, including recordings that appeared after the first list.
+	deleted := make(map[string]bool, len(targets))
+	pending := targets
 	var operationErr error
-	if len(targets) != 0 {
-		deleteConn, err := deps.newFileService(device)
-		if err != nil {
-			return result, fmt.Errorf("connect to native CoreDevice fileservice for deletion: %w", err)
-		}
-		for _, target := range targets {
-			if err := deleteConn.RemoveFile(target); err != nil {
-				operationErr = fmt.Errorf("remove testmanagerd screen recording %q after deleting %d file(s): %w", target, result.DeletedCount, err)
-				break
+	rounds := 0
+	for round := 1; round <= testmanagerdDeleteMaxRounds && len(pending) != 0; round++ {
+		rounds = round
+		if round > 1 {
+			slog.Warn("Some testmanagerd attachments still exist; retrying with a new fileservice session",
+				"round", round, "remaining", len(pending), "first", pending[0])
+			if deps.sleep != nil {
+				deps.sleep(testmanagerdDeleteRetryDelay)
 			}
-			result.DeletedCount++
 		}
-		if err := deleteConn.Close(); err != nil {
-			slog.Warn("Failed to close native CoreDevice fileservice after deletion; continuing with verification", "error", err)
+		operationErr = removeTestmanagerdAttachmentsNative(device, deps, pending)
+		for _, target := range pending {
+			deleted[target] = true
 		}
+
+		remaining, err := listTestmanagerdAttachmentsNative(device, deps)
+		if err != nil {
+			if operationErr != nil {
+				return result, fmt.Errorf("%v; cleanup verification also failed: %w", operationErr, err)
+			}
+			return result, fmt.Errorf("verify testmanagerd screen recording cleanup: %w", err)
+		}
+		remainingTargets, _, err := normalizeTestmanagerdAttachmentPaths(remaining)
+		if err != nil {
+			if operationErr != nil {
+				return result, fmt.Errorf("%v; cleanup verification also failed: %w", operationErr, err)
+			}
+			return result, fmt.Errorf("verify testmanagerd screen recording cleanup: %w", err)
+		}
+		pending = remainingTargets
 	}
 
-	remaining, err := listTestmanagerdAttachmentsNative(device, deps)
-	if err != nil {
-		if operationErr != nil {
-			return result, fmt.Errorf("%v; cleanup verification also failed: %w", operationErr, err)
-		}
-		return result, fmt.Errorf("verify testmanagerd screen recording cleanup: %w", err)
+	for _, target := range pending {
+		delete(deleted, target)
 	}
-	remainingTargets, err := normalizeTestmanagerdAttachmentPaths(remaining)
-	if err != nil {
+	result.DeletedCount = len(deleted)
+	if len(pending) != 0 {
+		message := fmt.Sprintf("%d testmanagerd screen recording attachment(s) still exist after %d deletion round(s): %s",
+			len(pending), rounds, summarizeTestmanagerdPaths(pending, 10))
 		if operationErr != nil {
-			return result, fmt.Errorf("%v; cleanup verification also failed: %w", operationErr, err)
+			return result, fmt.Errorf("%v; %s", operationErr, message)
 		}
-		return result, fmt.Errorf("verify testmanagerd screen recording cleanup: %w", err)
-	}
-	if len(remainingTargets) != 0 {
-		if operationErr != nil {
-			return result, fmt.Errorf("%v; cleanup verification found remaining attachment: %s", operationErr, remainingTargets[0])
-		}
-		return result, fmt.Errorf("testmanagerd screen recording attachment still exists: %s", remainingTargets[0])
+		return result, fmt.Errorf("%s", message)
 	}
 	if operationErr != nil {
 		result.Output = operationErr.Error()
-		slog.Warn("Native fileservice reported a deletion error, but independent verification confirmed the attachment directory is empty", "error", operationErr)
+		slog.Warn("Native fileservice reported a deletion error, but independent verification confirmed all recording attachments are gone", "error", operationErr)
 	}
 	return result, nil
+}
+
+// removeTestmanagerdAttachmentsNative removes the given exact paths on one
+// fresh fileservice session. It stops at the first failed request, because a
+// failed send/receive is ambiguous; the caller verifies with a new session.
+func removeTestmanagerdAttachmentsNative(device ios.DeviceEntry, deps testmanagerdCommandDeps, targets []string) error {
+	deleteConn, err := deps.newFileService(device)
+	if err != nil {
+		return fmt.Errorf("connect to native CoreDevice fileservice for deletion: %w", err)
+	}
+	var operationErr error
+	acknowledged := 0
+	for _, target := range targets {
+		if err := deleteConn.RemoveFile(target); err != nil {
+			operationErr = fmt.Errorf("remove testmanagerd screen recording %q after %d acknowledged removal(s): %w", target, acknowledged, err)
+			break
+		}
+		acknowledged++
+		slog.Debug("fileservice acknowledged testmanagerd attachment removal", "path", target)
+	}
+	if err := deleteConn.Close(); err != nil {
+		slog.Warn("Failed to close native CoreDevice fileservice after deletion; continuing with verification", "error", err)
+	}
+	return operationErr
+}
+
+func summarizeTestmanagerdPaths(paths []string, limit int) string {
+	if len(paths) <= limit {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s, ... (+%d more)", strings.Join(paths[:limit], ", "), len(paths)-limit)
 }
 
 func listTestmanagerdAttachmentsNative(device ios.DeviceEntry, deps testmanagerdCommandDeps) ([]string, error) {
@@ -205,11 +263,17 @@ func listTestmanagerdAttachmentsNative(device ios.DeviceEntry, deps testmanagerd
 	return entries, nil
 }
 
-func normalizeTestmanagerdAttachmentPaths(entries []string) ([]string, error) {
+// normalizeTestmanagerdAttachmentPaths returns the recording attachment paths
+// that may be removed (a canonical UUID, optionally followed by a "." suffix
+// such as the ".sb-xxxxxxxx-XXXXXX" atomic-write temporary file), and the other
+// entries (relative to tmp/Attachments) that are left untouched. Entries that resolve outside
+// tmp/Attachments are still treated as a hard error.
+func normalizeTestmanagerdAttachmentPaths(entries []string) ([]string, []string, error) {
 	targets := make([]string, 0, len(entries))
+	var skipped []string
 	for _, entry := range entries {
 		if strings.Contains(entry, "\\") {
-			return nil, fmt.Errorf("refusing to normalize attachment path containing a backslash: %q", entry)
+			return nil, nil, fmt.Errorf("refusing to normalize attachment path containing a backslash: %q", entry)
 		}
 		normalized := strings.TrimPrefix(entry, "./")
 		if normalized == "" || normalized == "." || normalized == testmanagerdAttachmentsDir {
@@ -219,15 +283,16 @@ func normalizeTestmanagerdAttachmentPaths(entries []string) ([]string, error) {
 			normalized = path.Join(testmanagerdAttachmentsDir, normalized)
 		}
 		if path.Clean(normalized) != normalized || !strings.HasPrefix(normalized, testmanagerdAttachmentsDir+"/") {
-			return nil, fmt.Errorf("fileservice returned an attachment path outside %s: %q", testmanagerdAttachmentsDir, entry)
+			return nil, nil, fmt.Errorf("fileservice returned an attachment path outside %s: %q", testmanagerdAttachmentsDir, entry)
 		}
 		relative := strings.TrimPrefix(normalized, testmanagerdAttachmentsDir+"/")
-		if !isCanonicalUUID(relative) {
-			return nil, fmt.Errorf("refusing to remove non-UUID attachment entry: %q", entry)
+		if !isTestmanagerdRecordingEntry(relative) {
+			skipped = append(skipped, relative)
+			continue
 		}
 		targets = append(targets, normalized)
 	}
-	return targets, nil
+	return targets, skipped, nil
 }
 
 func pullTestmanagerdScreenrecordNative(device ios.DeviceEntry, videoID, outputDir string, deps testmanagerdCommandDeps) (pullTestmanagerdScreenrecordResult, error) {
@@ -363,6 +428,16 @@ func validateTestmanagerdPlatform(goos string) error {
 		return fmt.Errorf("testmanagerd screen recording commands are only supported on macOS with Xcode xcrun devicectl (current platform: %s)", goos)
 	}
 	return nil
+}
+
+// isTestmanagerdRecordingEntry reports whether a direct child name of
+// tmp/Attachments is a testmanagerd recording artifact: "<UUID>" or
+// "<UUID>.<suffix>" (for example "<UUID>.sb-ef9f1177-dHlrBt").
+func isTestmanagerdRecordingEntry(name string) bool {
+	if strings.Contains(name, "/") || len(name) < 36 || !isCanonicalUUID(name[:36]) {
+		return false
+	}
+	return len(name) == 36 || (name[36] == '.' && len(name) > 37)
 }
 
 func isCanonicalUUID(value string) bool {

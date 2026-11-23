@@ -115,6 +115,7 @@ func TestNeedsAutomaticTunnelInfo(t *testing.T) {
 		{name: "zoom stays tunnel-free", args: docopt.Opts{"zoom": true}, want: false},
 		{name: "delete testmanagerd recordings needs tunnel", args: docopt.Opts{"delete_all_testmanagerd_screenrecord": true}, want: true},
 		{name: "pull testmanagerd recording needs tunnel", args: docopt.Opts{"pull_testmanagerd_screenrecord": true}, want: true},
+		{name: "list testmanagerd recordings needs tunnel", args: docopt.Opts{"screenrecord_ls": true}, want: true},
 		{name: "screencord start stays tunnel-free", args: docopt.Opts{"screenrecord_start": true}, want: false},
 		{name: "screencord stop stays tunnel-free", args: docopt.Opts{"screenrecord_stop": true}, want: false},
 		{name: "screencord status stays tunnel-free", args: docopt.Opts{"screenrecord_status": true}, want: false},

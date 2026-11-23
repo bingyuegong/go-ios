@@ -88,6 +88,7 @@ Commands:
   runtest                               Run XCUITest bundles.
   runwda                                Run WebDriverAgent.
   runxctest                             Run XCTest from .xctestrun file.
+  screenrecord_ls                       List testmanagerd screen recordings (name, size, time). Default is table format, use -J for JSON output.
   screenrecord_start                    Start WDA screen recording through a direct usbmux connection.
   screenrecord_status                   Query WDA screen recording status through a direct usbmux connection.
   screenrecord_stop                     Stop WDA screen recording through a direct usbmux connection.

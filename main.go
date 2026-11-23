@@ -174,6 +174,7 @@ Usage:
   ios profile remove <profileName> [options]
   ios ps [--apps] [options]
   ios pull_testmanagerd_screenrecord --video-id <uuid> --output-dir <directory> [options]
+  ios screenrecord_ls [-J] [options]
   ios screenrecord_start [-wda-url <url>] [options]
   ios screenrecord_stop [-wda-url <url>] [options]
   ios screenrecord_status [-wda-url <url>] [options]

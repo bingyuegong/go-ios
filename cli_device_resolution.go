@@ -143,6 +143,7 @@ func needsAutomaticTunnelInfo(args docopt.Opts) bool {
 		"runwda",
 		"runxctest",
 		"runtest",
+		"screenrecord_ls",
 		"screenshot",
 		"setlocation",
 		"setlocationgpx",

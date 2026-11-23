@@ -95,6 +95,7 @@ var deviceCommands = []command{
 	commandByBool("screenrecord_status", runScreencordStatusCommand),
 	commandByBool("delete_all_testmanagerd_screenrecord", runDeleteAllTestmanagerdScreenrecordCommand),
 	commandByBool("pull_testmanagerd_screenrecord", runPullTestmanagerdScreenrecordCommand),
+	commandByBool("screenrecord_ls", runListTestmanagerdScreenrecordCommand),
 	commandByBool("file", runFileCommand),
 	commandByBool("fsync", runFsyncCommand),
 	commandByBool("devmode", runDevModeCommand),
