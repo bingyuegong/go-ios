@@ -244,7 +244,7 @@ func noRemoveFileDeps(files map[string]bool, sizes map[string]int64, unregistere
 func TestDeleteAllFallsBackToTestmanagerdWhenRemoveFileUnsupported(t *testing.T) {
 	files := map[string]bool{}
 	for i := 0; i < 2*testmanagerdDeleteBatchSize+10; i++ {
-		files[strings.ToUpper(uuid.NewString())] = true
+		files[strings.ToUpper(uuid.New().String())] = true
 	}
 	var requests [][]uuid.UUID
 	result, err := deleteAllTestmanagerdScreenrecordNative(testDevice(), iOS18Deps(files, &requests))
