@@ -1,6 +1,7 @@
 package fileservice
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -75,5 +76,24 @@ func TestBuildFileSystemOperationRequestRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("error = %v, want substring %q", err, testCase.wantError)
 			}
 		})
+	}
+}
+
+func TestExtractErrorDetectsUnsupportedCommand(t *testing.T) {
+	response := map[string]interface{}{
+		"EncodedError": map[string]interface{}{
+			"ErrorCode":              int64(11014),
+			"ErrorDomain":            "com.apple.dt.remoteservices.error",
+			"NSLocalizedDescription": "The command provided by the client is not valid.",
+		},
+		"Response": uint64(3),
+	}
+	err := validateFileSystemOperationResponse(response)
+	if !errors.Is(err, ErrCommandNotSupported) {
+		t.Fatalf("expected ErrCommandNotSupported, got %v", err)
+	}
+	other := map[string]interface{}{"EncodedError": map[string]interface{}{"ErrorCode": uint64(2)}}
+	if err := extractError(other); err == nil || errors.Is(err, ErrCommandNotSupported) {
+		t.Fatalf("unexpected classification: %v", err)
 	}
 }

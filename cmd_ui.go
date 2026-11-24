@@ -346,7 +346,10 @@ func (c *uiClient) button(button string) {
 		printUIResponse(c.deviceKitRPC("device.io.button", map[string]interface{}{"button": button}))
 	case uiDriverWDA:
 		if strings.EqualFold(button, "home") {
-			printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "wda", "homescreen"), nil))
+			// 使用 pressButton 模拟 Home 键，而不是 /wda/homescreen：
+			// 1. /wda/homescreen 在 WDA 中注册为免 session 路由，带 session 前缀请求会返回 404；
+			// 2. 旧版 WDA 的 homescreen 通过 XCTest activate SpringBoard 实现，在 iOS 27.x 上会固定阻塞约 60s。
+			printUIResponse(c.wdaHTTP(http.MethodPost, wdaPath("session", c.wdaSession(), "wda", "pressButton"), mustJSON(map[string]interface{}{"name": "home"})))
 			return
 		}
 		logFatal("WDA only supports the home button through this command; use --driver=devicekit for lock/volume buttons")

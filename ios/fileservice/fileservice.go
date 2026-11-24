@@ -3,6 +3,7 @@ package fileservice
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -53,6 +54,16 @@ type Connection struct {
 	sessionID  string
 	domain     Domain
 	identifier string
+	// streamPending is set once a directory listing left a receive outstanding
+	// or failed mid-stream; the connection must then only be closed.
+	streamPending bool
+}
+
+func (c *Connection) checkUsable(operation string) error {
+	if c.streamPending {
+		return fmt.Errorf("%s: connection has an unfinished directory listing; open a new file service connection", operation)
+	}
+	return nil
 }
 
 // New creates a new connection to the file service on the device for iOS 17+.
@@ -121,6 +132,9 @@ func (c *Connection) createSession() error {
 func (c *Connection) ListDirectory(path string) ([]string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkUsable("ListDirectory"); err != nil {
+		return nil, err
+	}
 
 	msgUUID := uuid.New().String()
 
@@ -135,26 +149,12 @@ func (c *Connection) ListDirectory(path string) ([]string, error) {
 		return nil, fmt.Errorf("ListDirectory: failed to send request: %w", err)
 	}
 
-	// Directory list responses come on ClientServerStream
-	response, err := c.conn.ReceiveOnClientServerStream()
+	// Directory list responses come on ClientServerStream, in batches.
+	fileList, pending, err := receiveDirectoryListEntries(c.conn.ReceiveOnClientServerStream, msgUUID, directoryListContinuationTimeout)
+	c.streamPending = c.streamPending || pending
 	if err != nil {
-		return nil, fmt.Errorf("ListDirectory: failed to receive response: %w", err)
-	}
-
-	// Check for errors in response
-	if err := extractError(response); err != nil {
+		c.streamPending = true
 		return nil, fmt.Errorf("ListDirectory: %w", err)
-	}
-
-	// Extract file list
-	fileListRaw, ok := response["FileList"]
-	if !ok {
-		return nil, fmt.Errorf("ListDirectory: missing FileList in response")
-	}
-
-	fileList, ok := fileListRaw.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("ListDirectory: FileList is not an array")
 	}
 
 	// Convert to string slice
@@ -183,6 +183,9 @@ func (c *Connection) RemoveDirectory(path string) error {
 func (c *Connection) fileSystemOperation(operationType, path string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkUsable(operationType); err != nil {
+		return err
+	}
 
 	request, err := buildFileSystemOperationRequest(c.sessionID, operationType, path)
 	if err != nil {
@@ -237,6 +240,9 @@ func buildFileSystemOperationRequest(sessionID, operationType, path string) (map
 func (c *Connection) PullFile(path string, writer io.Writer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkUsable("PullFile"); err != nil {
+		return err
+	}
 
 	// Step 1: Send RetrieveFile command to control service
 	request := map[string]interface{}{
@@ -325,6 +331,9 @@ func (c *Connection) downloadFileData(responseToken, fileID uint64, writer io.Wr
 func (c *Connection) PushFile(path string, reader io.Reader, fileSize int64, permissions int64, uid, gid int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkUsable("PushFile"); err != nil {
+		return err
+	}
 
 	// Validate file size
 	if fileSize > MaxFileSize {
@@ -483,10 +492,20 @@ func (c *Connection) Close() error {
 }
 
 // extractError checks if the response contains an error and returns it
+// ErrCommandNotSupported is returned (wrapped) when the device rejects a request
+// with com.apple.dt.remoteservices.error 11014 ("The command provided by the
+// client is not valid."), e.g. FileSystemOperation/RemoveFile on iOS 18.
+var ErrCommandNotSupported = errors.New("file service command not supported by this device")
+
+const remoteServicesInvalidCommandCode = 11014
+
 func extractError(response map[string]interface{}) error {
 	if encodedError, ok := response["EncodedError"]; ok && encodedError != nil {
-		// Try to get localized description first
 		if errorMap, ok := encodedError.(map[string]interface{}); ok {
+			if code, ok := errorCode(errorMap["ErrorCode"]); ok && code == remoteServicesInvalidCommandCode {
+				return fmt.Errorf("device error: %+v: %w", encodedError, ErrCommandNotSupported)
+			}
+			// Try to get localized description first
 			if desc, ok := errorMap["LocalizedDescription"].(string); ok && desc != "" {
 				return fmt.Errorf("device error: %s", desc)
 			}
@@ -494,4 +513,17 @@ func extractError(response map[string]interface{}) error {
 		return fmt.Errorf("device error: %+v", encodedError)
 	}
 	return nil
+}
+
+func errorCode(value interface{}) (int64, bool) {
+	switch code := value.(type) {
+	case int64:
+		return code, true
+	case uint64:
+		return int64(code), true
+	case int:
+		return int64(code), true
+	default:
+		return 0, false
+	}
 }

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/bingyuegong/go-ios/ios"
 	"github.com/bingyuegong/go-ios/ios/fileservice"
+	"github.com/bingyuegong/go-ios/ios/testmanagerd"
 	"github.com/google/uuid"
 )
 
@@ -30,6 +34,7 @@ type testmanagerdFileService interface {
 	ListDirectoryFileNodes(path string) ([]fileservice.FileNode, error)
 	PullFile(path string, writer io.Writer) error
 	RemoveFile(path string) error
+	PushFile(path string, reader io.Reader, fileSize int64, permissions int64, uid, gid int64) error
 	Close() error
 }
 
@@ -45,6 +50,14 @@ type testmanagerdCommandDeps struct {
 	abs            func(path string) (string, error)
 	link           func(oldname, newname string) error
 	sleep          func(time.Duration)
+	// newAttachmentDeleter opens a testmanagerd control session used to delete
+	// UUID-named recordings when the file service has no RemoveFile (iOS 18).
+	newAttachmentDeleter func(device ios.DeviceEntry) (testmanagerdAttachmentDeleter, error)
+}
+
+type testmanagerdAttachmentDeleter interface {
+	DeleteAttachments(ctx context.Context, ids []uuid.UUID) error
+	Close() error
 }
 
 type deleteAllTestmanagerdScreenrecordResult struct {
@@ -53,7 +66,12 @@ type deleteAllTestmanagerdScreenrecordResult struct {
 	Transport    string   `json:"transport"`
 	DeletedCount int      `json:"deletedCount,omitempty"`
 	Skipped      []string `json:"skipped,omitempty"`
-	Output       string   `json:"output,omitempty"`
+	// Truncated lists recordings that this device can neither remove through
+	// the file service nor through testmanagerd (e.g. UUID.sb-* leftovers on
+	// devices without FileSystemOperation support). They were overwritten with
+	// empty content to reclaim their space and remain as 0-byte entries.
+	Truncated []string `json:"truncated,omitempty"`
+	Output    string   `json:"output,omitempty"`
 }
 
 type pullTestmanagerdScreenrecordResult struct {
@@ -84,6 +102,9 @@ func defaultTestmanagerdCommandDeps() testmanagerdCommandDeps {
 		abs:   filepath.Abs,
 		link:  os.Link,
 		sleep: time.Sleep,
+		newAttachmentDeleter: func(device ios.DeviceEntry) (testmanagerdAttachmentDeleter, error) {
+			return testmanagerd.NewAttachmentDeleter(device)
+		},
 	}
 }
 
@@ -99,6 +120,9 @@ func runDeleteAllTestmanagerdScreenrecordCommand(ctx commandContext) {
 		fmt.Printf("Deleted %d testmanagerd screen recording attachments from %s on device %s using %s\n", result.DeletedCount, result.RemotePath, result.UDID, result.Transport)
 		if len(result.Skipped) != 0 {
 			fmt.Printf("Skipped %d non-UUID entries: %s\n", len(result.Skipped), strings.Join(result.Skipped, ", "))
+		}
+		if len(result.Truncated) != 0 {
+			fmt.Printf("Truncated %d undeletable entries to 0 bytes (this device cannot remove them): %s\n", len(result.Truncated), strings.Join(result.Truncated, ", "))
 		}
 		return
 	}
@@ -166,16 +190,17 @@ func deleteAllTestmanagerdScreenrecordNative(device ios.DeviceEntry, deps testma
 	pending := targets
 	var operationErr error
 	rounds := 0
+	remover := &testmanagerdAttachmentRemover{device: device, deps: deps}
 	for round := 1; round <= testmanagerdDeleteMaxRounds && len(pending) != 0; round++ {
 		rounds = round
 		if round > 1 {
-			slog.Warn("Some testmanagerd attachments still exist; retrying with a new fileservice session",
-				"round", round, "remaining", len(pending), "first", pending[0])
+			slog.Warn("Some testmanagerd attachments still exist; retrying with a new session",
+				"round", round, "remaining", len(pending), "first", pending[0], "transport", remover.transport())
 			if deps.sleep != nil {
 				deps.sleep(testmanagerdDeleteRetryDelay)
 			}
 		}
-		operationErr = removeTestmanagerdAttachmentsNative(device, deps, pending)
+		operationErr = remover.remove(pending)
 		for _, target := range pending {
 			deleted[target] = true
 		}
@@ -194,7 +219,36 @@ func deleteAllTestmanagerdScreenrecordNative(device ios.DeviceEntry, deps testma
 			}
 			return result, fmt.Errorf("verify testmanagerd screen recording cleanup: %w", err)
 		}
+		progressed := len(remainingTargets) < len(pending)
 		pending = remainingTargets
+		if remover.useTestmanagerd && len(pending) != 0 && (!progressed || len(uuidAttachmentIDs(pending)) == 0) {
+			// testmanagerd only deletes attachments it registered itself, so
+			// UUID.sb-* temporaries and unregistered files are never removed;
+			// further rounds cannot make progress.
+			break
+		}
+	}
+	result.Transport = remover.transport()
+
+	if remover.useTestmanagerd && len(pending) != 0 {
+		truncated, err := truncateUndeletableTestmanagerdAttachments(device, deps, pending)
+		if err != nil {
+			return result, fmt.Errorf("%d testmanagerd screen recording attachment(s) cannot be removed on this device (file service has no RemoveFile; testmanagerd does not know them) and reclaiming their space failed: %w",
+				len(pending), err)
+		}
+		result.Truncated = truncated
+		if len(truncated) != 0 {
+			slog.Warn("This device cannot remove some recording files; they were truncated to 0 bytes to reclaim their space",
+				"count", len(truncated), "entries", truncated)
+		}
+		for _, name := range truncated {
+			delete(deleted, testmanagerdAttachmentsDir+"/"+name)
+		}
+		result.DeletedCount = len(deleted)
+		if operationErr != nil {
+			result.Output = operationErr.Error()
+		}
+		return result, nil
 	}
 
 	for _, target := range pending {
@@ -214,6 +268,167 @@ func deleteAllTestmanagerdScreenrecordNative(device ios.DeviceEntry, deps testma
 		slog.Warn("Native fileservice reported a deletion error, but independent verification confirmed all recording attachments are gone", "error", operationErr)
 	}
 	return result, nil
+}
+
+// testmanagerd deletes synchronously and slowly (about 4 recordings per second
+// on an iPhone 11 / iOS 18.5), so requests are kept small with a generous
+// reply timeout. A batch that times out may still complete on the device; the
+// caller's verification listing decides what is left.
+const (
+	testmanagerdDeleteBatchSize    = 50
+	testmanagerdDeleteBatchTimeout = 120 * time.Second
+)
+
+// testmanagerdAttachmentRemover deletes recordings with the CoreDevice file
+// service and, once the device rejects RemoveFile as an unsupported command
+// (iOS 18), with testmanagerd's _IDE_deleteAttachmentsWithUUIDs: instead.
+type testmanagerdAttachmentRemover struct {
+	device          ios.DeviceEntry
+	deps            testmanagerdCommandDeps
+	useTestmanagerd bool
+}
+
+func (r *testmanagerdAttachmentRemover) transport() string {
+	if r.useTestmanagerd {
+		return "testmanagerd"
+	}
+	return "fileservice"
+}
+
+func (r *testmanagerdAttachmentRemover) remove(targets []string) error {
+	if !r.useTestmanagerd {
+		err := removeTestmanagerdAttachmentsNative(r.device, r.deps, targets)
+		if !errors.Is(err, fileservice.ErrCommandNotSupported) {
+			return err
+		}
+		slog.Warn("Device file service does not support RemoveFile; deleting recordings through testmanagerd instead. "+
+			"This usually means the mounted developer disk image is older than the one shipped with the current Xcode; "+
+			"connecting the device to the current Xcode (which mounts its newer image) enables direct deletion of every file.",
+			"error", err)
+		r.useTestmanagerd = true
+	}
+	return removeTestmanagerdAttachmentsViaTestmanagerd(r.device, r.deps, targets)
+}
+
+// uuidAttachmentIDs returns the UUIDs of targets named exactly by a UUID.
+func uuidAttachmentIDs(targets []string) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(targets))
+	for _, target := range targets {
+		name := strings.TrimPrefix(target, testmanagerdAttachmentsDir+"/")
+		if !isCanonicalUUID(name) {
+			continue
+		}
+		if id, err := uuid.Parse(name); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func removeTestmanagerdAttachmentsViaTestmanagerd(device ios.DeviceEntry, deps testmanagerdCommandDeps, targets []string) error {
+	ids := uuidAttachmentIDs(targets)
+	if len(ids) == 0 {
+		return nil
+	}
+	if deps.newAttachmentDeleter == nil {
+		return fmt.Errorf("testmanagerd attachment deleter is unavailable")
+	}
+	deleter, err := deps.newAttachmentDeleter(device)
+	if err != nil {
+		return fmt.Errorf("connect to testmanagerd for attachment deletion: %w", err)
+	}
+	defer func() {
+		if err := deleter.Close(); err != nil {
+			slog.Warn("Failed to close testmanagerd connection after deletion", "error", err)
+		}
+	}()
+	requested := 0
+	for start := 0; start < len(ids); start += testmanagerdDeleteBatchSize {
+		end := start + testmanagerdDeleteBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), testmanagerdDeleteBatchTimeout)
+		err := deleter.DeleteAttachments(ctx, ids[start:end])
+		cancel()
+		if err != nil {
+			return fmt.Errorf("testmanagerd delete after %d requested removal(s): %w", requested, err)
+		}
+		requested = end
+		slog.Info("testmanagerd deleted screen recordings", "progress", fmt.Sprintf("%d/%d", requested, len(ids)))
+	}
+	return nil
+}
+
+// truncateUndeletableTestmanagerdAttachments overwrites the given recordings
+// with empty content (file service ProposeEmptyFile) and verifies with a fresh
+// listing that each of them is now 0 bytes. It is used only when the device
+// offers no way to remove them. It returns the names relative to
+// tmp/Attachments.
+func truncateUndeletableTestmanagerdAttachments(device ios.DeviceEntry, deps testmanagerdCommandDeps, targets []string) ([]string, error) {
+	before, err := listTestmanagerdAttachmentNodes(device, deps)
+	if err != nil {
+		return nil, fmt.Errorf("list attachments before truncation: %w", err)
+	}
+	conn, err := deps.newFileService(device)
+	if err != nil {
+		return nil, fmt.Errorf("connect to native CoreDevice fileservice for truncation: %w", err)
+	}
+	names := make([]string, 0, len(targets))
+	var truncateErr error
+	for _, target := range targets {
+		name := strings.TrimPrefix(target, testmanagerdAttachmentsDir+"/")
+		node, exists := before[name]
+		if !exists {
+			// Gone since the last listing; nothing to reclaim.
+			continue
+		}
+		names = append(names, name)
+		if node.Size == 0 {
+			continue
+		}
+		if err := conn.PushFile(target, bytes.NewReader(nil), 0, 0o644, 501, 501); err != nil {
+			truncateErr = fmt.Errorf("truncate %q: %w", target, err)
+			break
+		}
+		slog.Info("Truncated undeletable testmanagerd recording to reclaim space", "path", target, "reclaimedBytes", node.Size)
+	}
+	if err := conn.Close(); err != nil {
+		slog.Warn("Failed to close native CoreDevice fileservice after truncation", "error", err)
+	}
+	if truncateErr != nil {
+		return nil, truncateErr
+	}
+
+	after, err := listTestmanagerdAttachmentNodes(device, deps)
+	if err != nil {
+		return nil, fmt.Errorf("verify truncation: %w", err)
+	}
+	for _, name := range names {
+		if node, exists := after[name]; exists && node.Size != 0 {
+			return nil, fmt.Errorf("verify truncation: %s still has %d bytes", name, node.Size)
+		}
+	}
+	return names, nil
+}
+
+func listTestmanagerdAttachmentNodes(device ios.DeviceEntry, deps testmanagerdCommandDeps) (map[string]fileservice.FileNode, error) {
+	conn, err := deps.newFileService(device)
+	if err != nil {
+		return nil, fmt.Errorf("connect to native CoreDevice fileservice: %w", err)
+	}
+	nodes, listErr := conn.ListDirectoryFileNodes(testmanagerdAttachmentsDir)
+	if err := conn.Close(); err != nil {
+		slog.Warn("Failed to close native CoreDevice fileservice after listing", "error", err)
+	}
+	if listErr != nil {
+		return nil, listErr
+	}
+	byName := make(map[string]fileservice.FileNode, len(nodes))
+	for _, node := range nodes {
+		byName[node.Name] = node
+	}
+	return byName, nil
 }
 
 // removeTestmanagerdAttachmentsNative removes the given exact paths on one

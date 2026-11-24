@@ -24,24 +24,27 @@ type FileNode struct {
 func (c *Connection) ListDirectoryFileNodes(dirPath string) ([]FileNode, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkUsable("ListDirectoryFileNodes"); err != nil {
+		return nil, err
+	}
 
+	messageUUID := uuid.New().String()
 	request := map[string]interface{}{
 		"Cmd":         "ListDirectoryFileNodes",
-		"MessageUUID": uuid.New().String(),
+		"MessageUUID": messageUUID,
 		"Path":        dirPath,
 		"SessionID":   c.sessionID,
 	}
 	if err := c.conn.Send(request, xpc.HeartbeatRequestFlag); err != nil {
 		return nil, fmt.Errorf("ListDirectoryFileNodes: failed to send request: %w", err)
 	}
-	response, err := c.conn.ReceiveOnClientServerStream()
+	list, pending, err := receiveDirectoryListEntries(c.conn.ReceiveOnClientServerStream, messageUUID, directoryListContinuationTimeout)
+	c.streamPending = c.streamPending || pending
 	if err != nil {
-		return nil, fmt.Errorf("ListDirectoryFileNodes: failed to receive response: %w", err)
-	}
-	if err := extractError(response); err != nil {
+		c.streamPending = true
 		return nil, fmt.Errorf("ListDirectoryFileNodes: %w", err)
 	}
-	nodes, err := parseFileNodes(response)
+	nodes, err := parseFileNodes(map[string]interface{}{"FileList": list})
 	if err != nil {
 		return nil, fmt.Errorf("ListDirectoryFileNodes: %w", err)
 	}
